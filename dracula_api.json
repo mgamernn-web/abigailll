@@ -1,0 +1,21 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\">{\n  \"login\": \"Dracula345336\",\n  \"id\": 278946829,\n  \"node_id\": \"U_kgDOEKBkDQ\",\n  \"avatar_url\": \"https://avatars.githubusercontent.com/u/278946829?v=4\",\n  \"gravatar_id\": \"\",\n  \"url\": \"https://api.github.com/users/Dracula345336\",\n  \"html_url\": \"https://github.com/Dracula345336\",\n  \"followers_url\": \"https://api.github.com/users/Dracula345336/followers\",\n  \"following_url\": \"https://api.github.com/users/Dracula345336/following{/other_user}\",\n  \"gists_url\": \"https://api.github.com/users/Dracula345336/gists{/gist_id}\",\n  \"starred_url\": \"https://api.github.com/users/Dracula345336/starred{/owner}{/repo}\",\n  \"subscriptions_url\": \"https://api.github.com/users/Dracula345336/subscriptions\",\n  \"organizations_url\": \"https://api.github.com/users/Dracula345336/orgs\",\n  \"repos_url\": \"https://api.github.com/users/Dracula345336/repos\",\n  \"events_url\": \"https://api.github.com/users/Dracula345336/events{/privacy}\",\n  \"received_events_url\": \"https://api.github.com/users/Dracula345336/received_events\",\n  \"type\": \"User\",\n  \"user_view_type\": \"public\",\n  \"site_admin\": false,\n  \"name\": null,\n  \"company\": null,\n  \"blog\": \"\",\n  \"location\": null,\n  \"email\": null,\n  \"hireable\": null,\n  \"bio\": null,\n  \"twitter_username\": null,\n  \"public_repos\": 1,\n  \"public_gists\": 0,\n  \"followers\": 0,\n  \"following\": 0,\n  \"created_at\": \"2026-04-24T10:13:27Z\",\n  \"updated_at\": \"2026-07-17T09:15:17Z\"\n}\n</pre></body></html>",
+    "httpStatus": 200,
+    "httpStatusText": "",
+    "publishedTime": "Fri, 17 Jul 2026 09:15:17 GMT",
+    "title": "",
+    "url": "https://api.github.com/users/Dracula345336",
+    "usage": {
+      "tokens": 480
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 480
+    }
+  },
+  "status": 20000
+}
