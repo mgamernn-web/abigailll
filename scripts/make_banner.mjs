@@ -11,7 +11,7 @@ async function main() {
   console.log('Image loaded, sending edit request...');
 
   const response = await zai.images.generations.edit({
-    prompt: "Transform this into a stunning 3D beach-themed Discord bot banner with 16:9 widescreen ratio. Place the main character on a beautiful tropical beach at golden hour sunset with warm orange, pink and purple sky. Add 3D depth effect with parallax layers - ocean waves in foreground, palm trees on sides, soft sand texture. Add elegant 3D text 'Abigail' in the center with glossy metallic finish, slight shadow beneath for floating 3D effect, and warm sunset reflections on the letters. Beach vibes: seashells, gentle waves foam, birds in the distance, sun rays peeking through clouds. Cinematic, photorealistic 3D render style, high quality, vibrant colors",
+    prompt: "Transform into a simple clean beach-themed banner. Keep the main character. Background: calm beach with ocean, soft sand, warm sunset sky with light orange and pink tones. Add simple text 'Abigail' in clean white font with subtle shadow, nothing flashy. Relaxed beach vibes, natural lighting, simple and clean composition. High quality, photorealistic",
     images: [{ url: dataUrl }],
     size: '1344x768'
   });
