@@ -3350,8 +3350,9 @@ client.on('messageCreate', async (message) => {
       } catch (e) { /* silently skip — hierarchy issue */ }
     }
 
-    return message.reply({ embeds: [embed] }).catch(console.error);
-  }
+    const afkPrefixMsg = await message.reply({ embeds: [embed] }).catch(console.error);
+    if (afkPrefixMsg) setTimeout(() => { afkPrefixMsg.delete().catch(() => {}); }, 1000);
+    return;
 
   /* ── AFK Return ── */
   try {
@@ -3375,11 +3376,11 @@ client.on('messageCreate', async (message) => {
         .setDescription(returnDesc)
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setTimestamp();
-      // Send in server channel — auto-delete after 5s
+      // Send in server channel — auto-delete after 1s
       console.log(`[AFK RETURN] Sending welcome back in channel: ${message.channel.name} (${message.channel.id})`);
       const returnMsg = await message.channel.send({ embeds: [embed] }).catch((err) => { console.error('[AFK RETURN] Channel send failed:', err.message); return null; });
       if (returnMsg) {
-        setTimeout(() => { returnMsg.delete().catch(() => {}); }, 5000);
+        setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
       }
 
       const isReturnOwner = message.guild.ownerId === message.author.id;

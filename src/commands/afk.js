@@ -142,6 +142,7 @@ module.exports = {
       .setFooter({ text: `💕 I'll be waiting for you, ${interaction.user.username}…` })
       .setTimestamp();
 
-    await interaction.reply({ embeds: [embed] });
+    const msg = await interaction.reply({ embeds: [embed] });
+    setTimeout(() => { msg.delete().catch(() => {}); }, 1000);
   },
 };
