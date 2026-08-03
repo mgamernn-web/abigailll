@@ -11,7 +11,7 @@ async function main() {
   console.log('Image loaded, sending edit request...');
 
   const response = await zai.images.generations.edit({
-    prompt: "Wide banner format. Keep the original character as is. Add large text 'ABIGAIL' written in simple bold white letters with black outline. Clean background, no extra decorations, no beach, no effects. Just the character and the text ABIGAIL. Simple and normal.",
+    prompt: "A normal wide banner with a calm sea and ocean in the background. The character is in front. Simple bold white text 'ABIGAIL' with black outline written clearly. Normal sea view with water and sky, nothing fancy, natural look, high quality",
     images: [{ url: dataUrl }],
     size: '1344x768'
   });
