@@ -11,7 +11,7 @@ async function main() {
   console.log('Image loaded, sending edit request...');
 
   const response = await zai.images.generations.edit({
-    prompt: "A normal wide banner with a calm sea and ocean in the background. The character is in front. Simple bold white text 'ABIGAIL' with black outline written clearly. Normal sea view with water and sky, nothing fancy, natural look, high quality",
+    prompt: "A wide banner showing the girl from behind, standing and looking at boats on the calm sea. Ocean with small boats in the distance, clear sky, natural sea view. No text, no writing, no letters. Just the girl seen from her back watching boats on the water. Simple, natural, high quality, photorealistic",
     images: [{ url: dataUrl }],
     size: '1344x768'
   });
