@@ -11,7 +11,7 @@ async function main() {
   console.log('Image loaded, sending edit request...');
 
   const response = await zai.images.generations.edit({
-    prompt: "A beautiful beach scene with calm ocean waves and soft sunset sky. The main character is standing on the beach. Large bold text 'Abigail' is clearly written across the banner in white color with dark shadow outline so it is readable. The text must say exactly Abigail. Simple, clean, natural beach vibes, warm tones, high quality",
+    prompt: "Wide banner format. Keep the original character as is. Add large text 'ABIGAIL' written in simple bold white letters with black outline. Clean background, no extra decorations, no beach, no effects. Just the character and the text ABIGAIL. Simple and normal.",
     images: [{ url: dataUrl }],
     size: '1344x768'
   });
