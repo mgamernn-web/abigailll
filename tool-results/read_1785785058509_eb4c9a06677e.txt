@@ -1,0 +1,401 @@
+     1→     1→2026-08-03T14:31:14.719623593Z [inf]  Starting Container
+     2→     2→2026-08-03T14:31:14.971294194Z [inf]  
+     3→     3→2026-08-03T14:31:14.971294534Z [inf]       UNIQUE(user_id, guild_id)
+     4→     4→2026-08-03T14:31:14.971304344Z [inf]     );
+     5→     5→2026-08-03T14:31:14.971305054Z [inf]  🔧 Running database migrations...
+     6→     6→2026-08-03T14:31:14.971312514Z [inf]  ⚠️  No SUPABASE_ACCESS_TOKEN — cannot auto-migrate.
+     7→     7→2026-08-03T14:31:14.971312814Z [inf]     -- ✅ Server pool table
+     8→     8→2026-08-03T14:31:14.971318174Z [inf]     Add SUPABASE_ACCESS_TOKEN to Railway to auto-fix!
+     9→     9→2026-08-03T14:31:14.971321824Z [inf]  
+    10→    10→2026-08-03T14:31:14.971325054Z [inf]       balance BIGINT DEFAULT 0,
+    11→    11→2026-08-03T14:31:14.971328594Z [inf]       bank BIGINT DEFAULT 0,
+    12→    12→2026-08-03T14:31:14.971331734Z [inf]       last_daily TIMESTAMPTZ,
+    13→    13→2026-08-03T14:31:14.971336363Z [inf]     OR run this SQL manually in Supabase SQL Editor:
+    14→    14→2026-08-03T14:31:14.971338513Z [inf]       last_work TIMESTAMPTZ,
+    15→    15→2026-08-03T14:31:14.971342983Z [inf]     ─────────────────────────────────────────
+    16→    16→2026-08-03T14:31:14.971345933Z [inf]       last_beg TIMESTAMPTZ,
+    17→    17→2026-08-03T14:31:14.971350003Z [inf]     -- ✅ Wallets table
+    18→    18→2026-08-03T14:31:14.971352673Z [inf]       last_rob TIMESTAMPTZ,
+    19→    19→2026-08-03T14:31:14.971357863Z [inf]     CREATE TABLE IF NOT EXISTS wallets (
+    20→    20→2026-08-03T14:31:14.971359653Z [inf]       last_gamble TIMESTAMPTZ,
+    21→    21→2026-08-03T14:31:14.971364563Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    22→    22→2026-08-03T14:31:14.971366783Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW(),
+    23→    23→2026-08-03T14:31:14.971370533Z [inf]       user_id TEXT NOT NULL,
+    24→    24→2026-08-03T14:31:14.971374233Z [inf]       guild_id TEXT NOT NULL,
+    25→    25→2026-08-03T14:31:14.971377413Z [inf]       username TEXT DEFAULT '',
+    26→    26→2026-08-03T14:31:14.971386593Z [inf]  
+    27→    27→2026-08-03T14:31:14.971390043Z [inf]  > sweetheart-bot@2.4.0 start
+    28→    28→2026-08-03T14:31:14.971393963Z [inf]  > node src/migrate.js && node src/index.js
+    29→    29→2026-08-03T14:31:14.972484256Z [inf]     CREATE TABLE IF NOT EXISTS server_pools (
+    30→    30→2026-08-03T14:31:14.972487336Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    31→    31→2026-08-03T14:31:14.972490136Z [inf]       guild_id TEXT NOT NULL UNIQUE,
+    32→    32→2026-08-03T14:31:14.972493296Z [inf]       guild_name TEXT DEFAULT '',
+    33→    33→2026-08-03T14:31:14.972496286Z [inf]       balance BIGINT DEFAULT 0,
+    34→    34→2026-08-03T14:31:14.972498926Z [inf]       total_donated BIGINT DEFAULT 0,
+    35→    35→2026-08-03T14:31:14.972501406Z [inf]       donor_count INT DEFAULT 0,
+    36→    36→2026-08-03T14:31:14.972504306Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW()
+    37→    37→2026-08-03T14:31:14.972506996Z [inf]     );
+    38→    38→2026-08-03T14:31:14.972509966Z [inf]     -- ✅ Pool donors table
+    39→    39→2026-08-03T14:31:14.972512356Z [inf]     CREATE TABLE IF NOT EXISTS pool_donors (
+    40→    40→2026-08-03T14:31:14.972514896Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    41→    41→2026-08-03T14:31:14.972517386Z [inf]       user_id TEXT NOT NULL,
+    42→    42→2026-08-03T14:31:14.972520366Z [inf]       guild_id TEXT NOT NULL,
+    43→    43→2026-08-03T14:31:14.972523086Z [inf]       username TEXT DEFAULT '',
+    44→    44→2026-08-03T14:31:14.972525756Z [inf]       total_donated BIGINT DEFAULT 0,
+    45→    45→2026-08-03T14:31:14.972528366Z [inf]       donation_count INT DEFAULT 1,
+    46→    46→2026-08-03T14:31:14.972530966Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW(),
+    47→    47→2026-08-03T14:31:14.972533606Z [inf]       UNIQUE(user_id, guild_id)
+    48→    48→2026-08-03T14:31:14.972536306Z [inf]     );
+    49→    49→2026-08-03T14:31:14.972538746Z [inf]     -- ✅ Mimic access table
+    50→    50→2026-08-03T14:31:14.972541166Z [inf]     CREATE TABLE IF NOT EXISTS mimic_access (
+    51→    51→2026-08-03T14:31:14.972543855Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    52→    52→2026-08-03T14:31:14.972546615Z [inf]       user_id TEXT NOT NULL,
+    53→    53→2026-08-03T14:31:14.972549095Z [inf]       guild_id TEXT NOT NULL,
+    54→    54→2026-08-03T14:31:14.972551985Z [inf]       username TEXT DEFAULT '',
+    55→    55→2026-08-03T14:31:14.973629829Z [inf]       granted_by TEXT DEFAULT '',
+    56→    56→2026-08-03T14:31:14.973633239Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW(),
+    57→    57→2026-08-03T14:31:14.973637249Z [inf]       UNIQUE(user_id, guild_id)
+    58→    58→2026-08-03T14:31:14.973640859Z [inf]     );
+    59→    59→2026-08-03T14:31:14.973644419Z [inf]     -- ✅ Add columns if table already exists without them
+    60→    60→2026-08-03T14:31:14.973648179Z [inf]     DO $$ BEGIN
+    61→    61→2026-08-03T14:31:14.973651639Z [inf]       ALTER TABLE mimic_access ADD COLUMN IF NOT EXISTS username TEXT DEFAULT '';
+    62→    62→2026-08-03T14:31:14.973655149Z [inf]       ALTER TABLE mimic_access ADD COLUMN IF NOT EXISTS granted_by TEXT DEFAULT '';
+    63→    63→2026-08-03T14:31:14.973658799Z [inf]     EXCEPTION WHEN undefined_table THEN
+    64→    64→2026-08-03T14:31:14.973662259Z [inf]       -- table doesn't exist yet, that's fine
+    65→    65→2026-08-03T14:31:14.973665279Z [inf]     END $$;
+    66→    66→2026-08-03T14:31:14.973669309Z [inf]     -- ✅ If old 'allowed_by' column exists, rename it to 'granted_by'
+    67→    67→2026-08-03T14:31:14.973672329Z [inf]     DO $$ BEGIN
+    68→    68→2026-08-03T14:31:14.973675399Z [inf]       ALTER TABLE mimic_access RENAME COLUMN allowed_by TO granted_by;
+    69→    69→2026-08-03T14:31:14.973678059Z [inf]     EXCEPTION WHEN undefined_column THEN
+    70→    70→2026-08-03T14:31:14.973680569Z [inf]       -- column doesn't exist, that's fine
+    71→    71→2026-08-03T14:31:14.973682969Z [inf]     END $$;
+    72→    72→2026-08-03T14:31:14.973685239Z [inf]     -- ✅ Mimic LOG access table (separate from mimic access!)
+    73→    73→2026-08-03T14:31:14.973687568Z [inf]     CREATE TABLE IF NOT EXISTS mimic_log_access (
+    74→    74→2026-08-03T14:31:14.973690208Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    75→    75→2026-08-03T14:31:14.973692628Z [inf]       user_id TEXT NOT NULL,
+    76→    76→2026-08-03T14:31:14.973694928Z [inf]       guild_id TEXT NOT NULL,
+    77→    77→2026-08-03T14:31:14.973698158Z [inf]       username TEXT DEFAULT '',
+    78→    78→2026-08-03T14:31:14.973700388Z [inf]       granted_by TEXT DEFAULT '',
+    79→    79→2026-08-03T14:31:14.973702868Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW(),
+    80→    80→2026-08-03T14:31:14.974889491Z [inf]       total_fours INT DEFAULT 0,
+    81→    81→2026-08-03T14:31:14.974894770Z [inf]       total_sixes INT DEFAULT 0,
+    82→    82→2026-08-03T14:31:14.974895180Z [inf]       UNIQUE(user_id, guild_id)
+    83→    83→2026-08-03T14:31:14.974899220Z [inf]       win_streak INT DEFAULT 0,
+    84→    84→2026-08-03T14:31:14.974900350Z [inf]     );
+    85→    85→2026-08-03T14:31:14.974903140Z [inf]       best_win_streak INT DEFAULT 0,
+    86→    86→2026-08-03T14:31:14.974904100Z [inf]     -- ✅ Disable RLS on ALL tables
+    87→    87→2026-08-03T14:31:14.974906240Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW()
+    88→    88→2026-08-03T14:31:14.974907790Z [inf]     ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;
+    89→    89→2026-08-03T14:31:14.974910990Z [inf]     ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;
+    90→    90→2026-08-03T14:31:14.974914820Z [inf]     ALTER TABLE server_pools DISABLE ROW LEVEL SECURITY;
+    91→    91→2026-08-03T14:31:14.974917730Z [inf]     ALTER TABLE pool_donors DISABLE ROW LEVEL SECURITY;
+    92→    92→2026-08-03T14:31:14.974920060Z [inf]     ALTER TABLE mimic_access DISABLE ROW LEVEL SECURITY;
+    93→    93→2026-08-03T14:31:14.974922580Z [inf]     ALTER TABLE mimic_log_access DISABLE ROW LEVEL SECURITY;
+    94→    94→2026-08-03T14:31:14.974925200Z [inf]     -- ✅ Hand Cricket profiles table
+    95→    95→2026-08-03T14:31:14.974927980Z [inf]     CREATE TABLE IF NOT EXISTS hc_profiles (
+    96→    96→2026-08-03T14:31:14.974930490Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    97→    97→2026-08-03T14:31:14.974933320Z [inf]       user_id TEXT NOT NULL UNIQUE,
+    98→    98→2026-08-03T14:31:14.974935860Z [inf]       username TEXT DEFAULT '',
+    99→    99→2026-08-03T14:31:14.974938490Z [inf]       games_played INT DEFAULT 0,
+   100→   100→2026-08-03T14:31:14.974941250Z [inf]       games_won INT DEFAULT 0,
+   101→   101→2026-08-03T14:31:14.974943800Z [inf]       total_runs INT DEFAULT 0,
+   102→   102→2026-08-03T14:31:14.974946630Z [inf]       total_wickets INT DEFAULT 0,
+   103→   103→2026-08-03T14:31:14.974948950Z [inf]       highest_score INT DEFAULT 0,
+   104→   104→2026-08-03T14:31:14.974951310Z [inf]       total_balls INT DEFAULT 0,
+   105→   105→2026-08-03T14:31:14.975586919Z [inf]     );
+   106→   106→2026-08-03T14:31:14.975589979Z [inf]     ALTER TABLE hc_profiles DISABLE ROW LEVEL SECURITY;
+   107→   107→2026-08-03T14:31:14.975592639Z [inf]     -- ✅ Add win_streak columns if they don't exist (safe migration for existing tables)
+   108→   108→2026-08-03T14:31:14.975595350Z [inf]     DO $$ BEGIN
+   109→   109→2026-08-03T14:31:14.975598140Z [inf]       ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS win_streak INT DEFAULT 0;
+   110→   110→2026-08-03T14:31:14.975600810Z [inf]       ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS best_win_streak INT DEFAULT 0;
+   111→   111→2026-08-03T14:31:14.975603280Z [inf]       ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS total_fours INT DEFAULT 0;
+   112→   112→2026-08-03T14:31:14.975605800Z [inf]       ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS total_sixes INT DEFAULT 0;
+   113→   113→2026-08-03T14:31:14.975608480Z [inf]     EXCEPTION WHEN OTHERS THEN
+   114→   114→2026-08-03T14:31:14.975611670Z [inf]       NULL;
+   115→   115→2026-08-03T14:31:14.975614480Z [inf]     END $$;
+   116→   116→2026-08-03T14:31:14.975617140Z [inf]     -- ✅ AFK Break Access table
+   117→   117→2026-08-03T14:31:14.975619660Z [inf]     CREATE TABLE IF NOT EXISTS afk_break_access (
+   118→   118→2026-08-03T14:31:14.975622060Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   119→   119→2026-08-03T14:31:14.975624540Z [inf]       user_id TEXT NOT NULL,
+   120→   120→2026-08-03T14:31:14.975627500Z [inf]       guild_id TEXT NOT NULL,
+   121→   121→2026-08-03T14:31:14.975630280Z [inf]       allowed_by TEXT NOT NULL,
+   122→   122→2026-08-03T14:31:14.975632740Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW(),
+   123→   123→2026-08-03T14:31:14.975635280Z [inf]       UNIQUE(user_id, guild_id)
+   124→   124→2026-08-03T14:31:14.975637590Z [inf]     );
+   125→   125→2026-08-03T14:31:14.975640230Z [inf]     -- ✅ AFK Break Access Config table
+   126→   126→2026-08-03T14:31:14.975642670Z [inf]     CREATE TABLE IF NOT EXISTS afk_break_access_config (
+   127→   127→2026-08-03T14:31:14.975644930Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   128→   128→2026-08-03T14:31:14.975647310Z [inf]       guild_id TEXT NOT NULL UNIQUE,
+   129→   129→2026-08-03T14:31:14.976584905Z [inf]       enabled BOOLEAN DEFAULT false,
+   130→   130→2026-08-03T14:31:14.976588515Z [inf]       allowed_role_id TEXT DEFAULT NULL,
+   131→   131→2026-08-03T14:31:14.976591165Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW()
+   132→   132→2026-08-03T14:31:14.976593805Z [inf]     );
+   133→   133→2026-08-03T14:31:14.976596104Z [inf]     ALTER TABLE afk_break_access DISABLE ROW LEVEL SECURITY;
+   134→   134→2026-08-03T14:31:14.976598874Z [inf]     ALTER TABLE afk_break_access_config DISABLE ROW LEVEL SECURITY;
+   135→   135→2026-08-03T14:31:14.976601324Z [inf]     -- ✅ Mimic Protected table (bot owner only can add/remove)
+   136→   136→2026-08-03T14:31:14.976603674Z [inf]     CREATE TABLE IF NOT EXISTS mimic_protected (
+   137→   137→2026-08-03T14:31:14.976606204Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   138→   138→2026-08-03T14:31:14.976608944Z [inf]       user_id TEXT NOT NULL,
+   139→   139→2026-08-03T14:31:14.976611614Z [inf]       guild_id TEXT NOT NULL,
+   140→   140→2026-08-03T14:31:14.976614174Z [inf]       username TEXT DEFAULT '',
+   141→   141→2026-08-03T14:31:14.976616534Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW(),
+   142→   142→2026-08-03T14:31:14.976618954Z [inf]       UNIQUE(user_id, guild_id)
+   143→   143→2026-08-03T14:31:14.976621234Z [inf]     );
+   144→   144→2026-08-03T14:31:14.976623404Z [inf]     ALTER TABLE mimic_protected DISABLE ROW LEVEL SECURITY;
+   145→   145→2026-08-03T14:31:14.976625954Z [inf]     -- ✅ AFK Break Protected table (bot owner only can add/remove)
+   146→   146→2026-08-03T14:31:14.976628174Z [inf]     CREATE TABLE IF NOT EXISTS afk_break_protected (
+   147→   147→2026-08-03T14:31:14.976630824Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   148→   148→2026-08-03T14:31:14.976633004Z [inf]       user_id TEXT NOT NULL,
+   149→   149→2026-08-03T14:31:14.976635224Z [inf]       guild_id TEXT NOT NULL,
+   150→   150→2026-08-03T14:31:14.976637654Z [inf]       username TEXT DEFAULT '',
+   151→   151→2026-08-03T14:31:14.976639994Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW(),
+   152→   152→2026-08-03T14:31:14.976642474Z [inf]       UNIQUE(user_id, guild_id)
+   153→   153→2026-08-03T14:31:14.976645504Z [inf]     );
+   154→   154→2026-08-03T14:31:14.977560930Z [inf]     ALTER TABLE afk_break_protected DISABLE ROW LEVEL SECURITY;
+   155→   155→2026-08-03T14:31:14.977564050Z [inf]     -- ✅ Mimic Log Channel table (bot owner sets private channel for mimic logs)
+   156→   156→2026-08-03T14:31:14.977566800Z [inf]     CREATE TABLE IF NOT EXISTS mimic_log_channel (
+   157→   157→2026-08-03T14:31:14.977569170Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   158→   158→2026-08-03T14:31:14.977571850Z [inf]       guild_id TEXT NOT NULL UNIQUE,
+   159→   159→2026-08-03T14:31:14.977574230Z [inf]       channel_id TEXT NOT NULL,
+   160→   160→2026-08-03T14:31:14.977576860Z [inf]       channel_name TEXT DEFAULT '',
+   161→   161→2026-08-03T14:31:14.977579470Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW()
+   162→   162→2026-08-03T14:31:14.977581840Z [inf]     );
+   163→   163→2026-08-03T14:31:14.977584650Z [inf]     ALTER TABLE mimic_log_channel DISABLE ROW LEVEL SECURITY;
+   164→   164→2026-08-03T14:31:14.977587540Z [inf]     -- ✅ Lootbox Config table
+   165→   165→2026-08-03T14:31:14.977590100Z [inf]     CREATE TABLE IF NOT EXISTS lootbox_config (
+   166→   166→2026-08-03T14:31:14.977592830Z [inf]       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   167→   167→2026-08-03T14:31:14.977595170Z [inf]       guild_id TEXT NOT NULL UNIQUE,
+   168→   168→2026-08-03T14:31:14.977597470Z [inf]       guild_name TEXT DEFAULT '',
+   169→   169→2026-08-03T14:31:14.977599830Z [inf]       enabled BOOLEAN DEFAULT false,
+   170→   170→2026-08-03T14:31:14.977602340Z [inf]       channel_id TEXT DEFAULT NULL,
+   171→   171→2026-08-03T14:31:14.977605299Z [inf]       created_at TIMESTAMPTZ DEFAULT NOW()
+   172→   172→2026-08-03T14:31:14.977608089Z [inf]     );
+   173→   173→2026-08-03T14:31:14.977610439Z [inf]     ALTER TABLE lootbox_config DISABLE ROW LEVEL SECURITY;
+   174→   174→2026-08-03T14:31:14.977612799Z [inf]     ─────────────────────────────────────────
+   175→   175→2026-08-03T14:31:14.977615209Z [inf]  
+   176→   176→2026-08-03T14:31:14.977617899Z [err]  ⚠️  BOT_OWNER_ID not set — /owner commands will be disabled. Add your Discord user ID to enable owner controls.
+   177→   177→2026-08-03T14:31:14.978727203Z [inf]  ✅ Supabase connected (service_role key — RLS bypassed)!
+   178→   178→2026-08-03T14:31:14.978730113Z [inf]  ✅ Supabase ready — AFK features enabled!
+   179→   179→2026-08-03T14:31:14.978732683Z [inf]  📁 Loaded command: /afk-break-access
+   180→   180→2026-08-03T14:31:14.978735283Z [inf]  📁 Loaded command: /afk-break-protection
+   181→   181→2026-08-03T14:31:14.978737713Z [inf]  📁 Loaded command: /afk-break
+   182→   182→2026-08-03T14:31:14.978740483Z [inf]  📁 Loaded command: /afk-list
+   183→   183→2026-08-03T14:31:14.978742862Z [inf]  📁 Loaded command: /afk
+   184→   184→2026-08-03T14:31:14.978745162Z [inf]  📁 Loaded command: /bal
+   185→   185→2026-08-03T14:31:14.978747502Z [inf]  📁 Loaded command: /beg
+   186→   186→2026-08-03T14:31:14.978750302Z [inf]  📁 Loaded command: /daily
+   187→   187→2026-08-03T14:31:14.978753272Z [inf]  📁 Loaded command: /donate
+   188→   188→2026-08-03T14:31:14.978755612Z [inf]  📁 Loaded command: /event
+   189→   189→2026-08-03T14:31:14.978757912Z [inf]  📁 Loaded command: /gamble
+   190→   190→2026-08-03T14:31:14.978760302Z [inf]  📁 Loaded command: /handcricket
+   191→   191→2026-08-03T14:31:14.978763002Z [inf]  📁 Loaded command: /mimic-access
+   192→   192→2026-08-03T14:31:14.978765422Z [inf]  📁 Loaded command: /mimic-log-channel
+   193→   193→2026-08-03T14:31:14.978767652Z [inf]  📁 Loaded command: /mimic-log
+   194→   194→2026-08-03T14:31:14.978769882Z [inf]  📁 Loaded command: /mimic-protected
+   195→   195→2026-08-03T14:31:14.978772062Z [inf]  📁 Loaded command: /mimic
+   196→   196→2026-08-03T14:31:14.978774272Z [inf]  📁 Loaded command: /owner
+   197→   197→2026-08-03T14:31:14.978776842Z [inf]  📁 Loaded command: /rich
+   198→   198→2026-08-03T14:31:14.978779422Z [inf]  📁 Loaded command: /rob
+   199→   199→2026-08-03T14:31:14.978782362Z [inf]  📁 Loaded command: /serverpool
+   200→   200→2026-08-03T14:31:14.978784662Z [inf]  📁 Loaded command: /snipe
+   201→   201→2026-08-03T14:31:14.978786862Z [inf]  📁 Loaded command: /tr
+   202→   202→2026-08-03T14:31:14.978789302Z [inf]  📁 Loaded command: /work
+   203→   203→2026-08-03T14:31:14.978791942Z [inf]  🏏 Hand Cricket slash commands initialized!
+   204→   204→2026-08-03T14:31:14.979450261Z [inf]  ✅ Keep-alive server running on port 8080
+   205→   205→2026-08-03T14:31:15.197020230Z [inf]  💖 Abigail#7549 is online and spreading love!
+   206→   206→2026-08-03T14:31:15.197028610Z [inf]  📡 Serving 5 server(s)
+   207→   207→2026-08-03T14:31:16.985064870Z [err]  ❌ Failed to load mimic_access: Could not find the table 'public.mimic_access' in the schema cache
+   208→   208→2026-08-03T14:31:17.708116629Z [inf]  🔄 Registering 24 global slash command(s)...
+   209→   209→2026-08-03T14:31:17.980799881Z [inf]  ✅ Global slash commands registered!
+   210→   210→2026-08-03T14:31:19.373824996Z [err]  Supabase query error: {
+   211→   211→2026-08-03T14:31:19.373829646Z [err]    code: 'PGRST205',
+   212→   212→2026-08-03T14:31:19.373833566Z [err]    details: null,
+   213→   213→2026-08-03T14:31:19.373836475Z [err]    hint: null,
+   214→   214→2026-08-03T14:31:19.373840095Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   215→   215→2026-08-03T14:31:19.373848105Z [err]  }
+   216→   216→2026-08-03T14:31:25.119661533Z [err]  Supabase query error: {
+   217→   217→2026-08-03T14:31:25.119666713Z [err]    code: 'PGRST205',
+   218→   218→2026-08-03T14:31:25.119670203Z [err]    details: null,
+   219→   219→2026-08-03T14:31:25.119673443Z [err]    hint: null,
+   220→   220→2026-08-03T14:31:25.119677463Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   221→   221→2026-08-03T14:31:25.119680363Z [err]  }
+   222→   222→2026-08-03T14:31:54.853958324Z [err]  Supabase query error: {
+   223→   223→2026-08-03T14:31:54.853963774Z [err]    code: 'PGRST205',
+   224→   224→2026-08-03T14:31:54.853967654Z [err]    details: null,
+   225→   225→2026-08-03T14:31:54.853971314Z [err]    hint: null,
+   226→   226→2026-08-03T14:31:54.853974314Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   227→   227→2026-08-03T14:31:54.853980214Z [err]  }
+   228→   228→2026-08-03T14:32:24.855707225Z [err]  Supabase query error: {
+   229→   229→2026-08-03T14:32:24.855719135Z [err]    code: 'PGRST205',
+   230→   230→2026-08-03T14:32:24.855724895Z [err]    details: null,
+   231→   231→2026-08-03T14:32:24.855729795Z [err]    hint: null,
+   232→   232→2026-08-03T14:32:24.855734755Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   233→   233→2026-08-03T14:32:24.855740295Z [err]  }
+   234→   234→2026-08-03T14:32:27.716963925Z [err]  Supabase query error: {
+   235→   235→2026-08-03T14:32:27.716967865Z [err]    code: 'PGRST205',
+   236→   236→2026-08-03T14:32:27.716971415Z [err]    details: null,
+   237→   237→2026-08-03T14:32:27.716974515Z [err]    hint: null,
+   238→   238→2026-08-03T14:32:27.716977695Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   239→   239→2026-08-03T14:32:27.716981115Z [err]  }
+   240→   240→2026-08-03T14:32:47.625088023Z [err]  Supabase query error: {
+   241→   241→2026-08-03T14:32:47.625090363Z [err]    code: 'PGRST205',
+   242→   242→2026-08-03T14:32:47.625092903Z [err]    details: null,
+   243→   243→2026-08-03T14:32:47.625095583Z [err]    hint: null,
+   244→   244→2026-08-03T14:32:47.625098023Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   245→   245→2026-08-03T14:32:47.625100313Z [err]  }
+   246→   246→2026-08-03T14:33:07.624539146Z [err]  Supabase query error: {
+   247→   247→2026-08-03T14:33:07.624548836Z [err]    code: 'PGRST205',
+   248→   248→2026-08-03T14:33:07.624554826Z [err]    details: null,
+   249→   249→2026-08-03T14:33:07.624558675Z [err]    hint: null,
+   250→   250→2026-08-03T14:33:07.624562055Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   251→   251→2026-08-03T14:33:07.624565475Z [err]  Supabase query error: {
+   252→   252→2026-08-03T14:33:07.624566225Z [err]  }
+   253→   253→2026-08-03T14:33:07.624571035Z [err]    code: 'PGRST205',
+   254→   254→2026-08-03T14:33:07.624576765Z [err]    details: null,
+   255→   255→2026-08-03T14:33:07.624581895Z [err]    hint: null,
+   256→   256→2026-08-03T14:33:07.624586855Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   257→   257→2026-08-03T14:33:07.624596755Z [err]  }
+   258→   258→2026-08-03T14:33:27.615332961Z [err]  Supabase query error: {
+   259→   259→2026-08-03T14:33:27.615338130Z [err]    code: 'PGRST205',
+   260→   260→2026-08-03T14:33:27.615342180Z [err]    details: null,
+   261→   261→2026-08-03T14:33:27.615345630Z [err]    hint: null,
+   262→   262→2026-08-03T14:33:27.615348900Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   263→   263→2026-08-03T14:33:27.615352210Z [err]  }
+   264→   264→2026-08-03T14:33:29.736541868Z [err]  Supabase query error: {
+   265→   265→2026-08-03T14:33:29.736546968Z [err]    code: 'PGRST205',
+   266→   266→2026-08-03T14:33:29.736550568Z [err]    details: null,
+   267→   267→2026-08-03T14:33:29.736553328Z [err]    hint: null,
+   268→   268→2026-08-03T14:33:29.736555538Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   269→   269→2026-08-03T14:33:29.736557798Z [err]  }
+   270→   270→2026-08-03T14:33:49.804631572Z [err]    details: null,
+   271→   271→2026-08-03T14:33:49.804642282Z [err]    hint: null,
+   272→   272→2026-08-03T14:33:49.804647212Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   273→   273→2026-08-03T14:33:49.804651362Z [err]  }
+   274→   274→2026-08-03T14:33:49.804767740Z [err]  Supabase query error: {
+   275→   275→2026-08-03T14:33:49.804771830Z [err]    code: 'PGRST205',
+   276→   276→2026-08-03T14:34:09.640046028Z [err]  Supabase query error: {
+   277→   277→2026-08-03T14:34:09.640051888Z [err]    code: 'PGRST205',
+   278→   278→2026-08-03T14:34:09.640055058Z [err]    details: null,
+   279→   279→2026-08-03T14:34:09.640058278Z [err]    hint: null,
+   280→   280→2026-08-03T14:34:09.640061118Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   281→   281→2026-08-03T14:34:09.640064918Z [err]  }
+   282→   282→2026-08-03T14:34:14.112922529Z [err]  Supabase query error: {
+   283→   283→2026-08-03T14:34:14.112926409Z [err]    code: 'PGRST205',
+   284→   284→2026-08-03T14:34:14.112929009Z [err]    details: null,
+   285→   285→2026-08-03T14:34:14.112931979Z [err]    hint: null,
+   286→   286→2026-08-03T14:34:14.112934819Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   287→   287→2026-08-03T14:34:14.112937439Z [err]  }
+   288→   288→2026-08-03T14:34:33.919757554Z [err]  Supabase upsert error: {
+   289→   289→2026-08-03T14:34:33.919763063Z [err]    code: 'PGRST205',
+   290→   290→2026-08-03T14:34:33.919765963Z [err]    details: null,
+   291→   291→2026-08-03T14:34:33.919768873Z [err]    hint: null,
+   292→   292→2026-08-03T14:34:33.919771663Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   293→   293→2026-08-03T14:34:33.919774323Z [err]  }
+   294→   294→2026-08-03T14:35:23.947164230Z [err]  Supabase query error: {
+   295→   295→2026-08-03T14:35:23.947167840Z [err]    code: 'PGRST205',
+   296→   296→2026-08-03T14:35:23.947170600Z [err]    details: null,
+   297→   297→2026-08-03T14:35:23.947173410Z [err]    hint: null,
+   298→   298→2026-08-03T14:35:23.947175940Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   299→   299→2026-08-03T14:35:23.947178420Z [err]  }
+   300→   300→2026-08-03T14:35:43.952979375Z [err]  Supabase query error: {
+   301→   301→2026-08-03T14:35:43.952982415Z [err]    code: 'PGRST205',
+   302→   302→2026-08-03T14:35:43.952985755Z [err]    details: null,
+   303→   303→2026-08-03T14:35:43.952989695Z [err]    hint: null,
+   304→   304→2026-08-03T14:35:43.952992185Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   305→   305→2026-08-03T14:35:43.952995765Z [err]  }
+   306→   306→2026-08-03T14:35:46.661690526Z [err]  Supabase query error: {
+   307→   307→2026-08-03T14:35:46.661700156Z [err]    code: 'PGRST205',
+   308→   308→2026-08-03T14:35:46.661706466Z [err]    details: null,
+   309→   309→2026-08-03T14:35:46.661718015Z [err]    hint: null,
+   310→   310→2026-08-03T14:35:46.661724775Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   311→   311→2026-08-03T14:35:46.661729535Z [err]  }
+   312→   312→2026-08-03T14:36:06.656088726Z [err]  Supabase query error: {
+   313→   313→2026-08-03T14:36:06.656095026Z [err]    code: 'PGRST205',
+   314→   314→2026-08-03T14:36:06.656100176Z [err]    details: null,
+   315→   315→2026-08-03T14:36:06.656104076Z [err]    hint: null,
+   316→   316→2026-08-03T14:36:06.656107266Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   317→   317→2026-08-03T14:36:06.656110586Z [err]  }
+   318→   318→2026-08-03T14:36:10.339118725Z [err]  Supabase query error: {
+   319→   319→2026-08-03T14:36:10.339132835Z [err]    code: 'PGRST205',
+   320→   320→2026-08-03T14:36:10.339140434Z [err]    details: null,
+   321→   321→2026-08-03T14:36:10.339145904Z [err]    hint: null,
+   322→   322→2026-08-03T14:36:10.339151034Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   323→   323→2026-08-03T14:36:10.339156324Z [err]  }
+   324→   324→2026-08-03T14:36:30.465450547Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   325→   325→2026-08-03T14:36:30.465457007Z [err]  }
+   326→   326→2026-08-03T14:36:30.465485937Z [err]    code: 'PGRST205',
+   327→   327→2026-08-03T14:36:30.465500686Z [err]    details: null,
+   328→   328→2026-08-03T14:36:30.465507226Z [err]    hint: null,
+   329→   329→2026-08-03T14:36:30.465735313Z [err]  Supabase query error: {
+   330→   330→2026-08-03T14:37:00.465370972Z [err]  Supabase query error: {
+   331→   331→2026-08-03T14:37:00.465376912Z [err]    code: 'PGRST205',
+   332→   332→2026-08-03T14:37:00.465380492Z [err]    details: null,
+   333→   333→2026-08-03T14:37:00.465383992Z [err]    hint: null,
+   334→   334→2026-08-03T14:37:00.465387132Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   335→   335→2026-08-03T14:37:00.465390572Z [err]  }
+   336→   336→2026-08-03T14:37:20.459024510Z [err]  Supabase query error: {
+   337→   337→2026-08-03T14:37:20.459043540Z [err]    code: 'PGRST205',
+   338→   338→2026-08-03T14:37:20.459048459Z [err]    details: null,
+   339→   339→2026-08-03T14:37:20.459053749Z [err]    hint: null,
+   340→   340→2026-08-03T14:37:20.459058669Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   341→   341→2026-08-03T14:37:20.459063749Z [err]  }
+   342→   342→2026-08-03T14:37:20.459068849Z [err]  Supabase query error: {
+   343→   343→2026-08-03T14:37:20.459073179Z [err]    code: 'PGRST205',
+   344→   344→2026-08-03T14:37:20.459077229Z [err]    details: null,
+   345→   345→2026-08-03T14:37:20.459081259Z [err]    hint: null,
+   346→   346→2026-08-03T14:37:20.459085279Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   347→   347→2026-08-03T14:37:20.459088859Z [err]  }
+   348→   348→2026-08-03T14:37:20.459092279Z [err]  Supabase query error: {
+   349→   349→2026-08-03T14:37:20.459095429Z [err]    code: 'PGRST205',
+   350→   350→2026-08-03T14:37:20.459101359Z [err]    details: null,
+   351→   351→2026-08-03T14:37:20.459105009Z [err]    hint: null,
+   352→   352→2026-08-03T14:37:20.459108289Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   353→   353→2026-08-03T14:37:20.459111758Z [err]  }
+   354→   354→2026-08-03T14:37:28.949995838Z [err]  Supabase query error: {
+   355→   355→2026-08-03T14:37:28.950000648Z [err]    code: 'PGRST205',
+   356→   356→2026-08-03T14:37:28.950003468Z [err]    details: null,
+   357→   357→2026-08-03T14:37:28.950005958Z [err]    hint: null,
+   358→   358→2026-08-03T14:37:28.950008828Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   359→   359→2026-08-03T14:37:28.950011448Z [err]  }
+   360→   360→2026-08-03T14:37:35.619494962Z [err]  Supabase query error: {
+   361→   361→2026-08-03T14:37:35.619503102Z [err]    code: 'PGRST205',
+   362→   362→2026-08-03T14:37:35.619507862Z [err]    details: null,
+   363→   363→2026-08-03T14:37:35.619511982Z [err]    hint: null,
+   364→   364→2026-08-03T14:37:35.619516592Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   365→   365→2026-08-03T14:37:35.619522212Z [err]  }
+   366→   366→2026-08-03T14:38:25.502760930Z [err]  Supabase query error: {
+   367→   367→2026-08-03T14:38:25.502763690Z [err]    code: 'PGRST205',
+   368→   368→2026-08-03T14:38:25.502766630Z [err]    details: null,
+   369→   369→2026-08-03T14:38:25.502770229Z [err]    hint: null,
+   370→   370→2026-08-03T14:38:25.502773239Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   371→   371→2026-08-03T14:38:25.502775609Z [err]  }
+   372→   372→2026-08-03T14:38:25.502778129Z [err]  Supabase query error: {
+   373→   373→2026-08-03T14:38:25.502781829Z [err]    code: 'PGRST205',
+   374→   374→2026-08-03T14:38:25.502786519Z [err]    details: null,
+   375→   375→2026-08-03T14:38:25.502793009Z [err]    hint: null,
+   376→   376→2026-08-03T14:38:25.502800799Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   377→   377→2026-08-03T14:38:25.502804609Z [err]  }
+   378→   378→2026-08-03T14:38:45.496196164Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   379→   379→2026-08-03T14:38:45.496201874Z [err]  }
+   380→   380→2026-08-03T14:38:45.496254054Z [err]  Supabase upsert error: {
+   381→   381→2026-08-03T14:38:45.496267303Z [err]    code: 'PGRST205',
+   382→   382→2026-08-03T14:38:45.496273223Z [err]    details: null,
+   383→   383→2026-08-03T14:38:45.496278323Z [err]    hint: null,
+   384→   384→2026-08-03T14:39:15.575908632Z [err]  Supabase query error: {
+   385→   385→2026-08-03T14:39:15.575912012Z [err]    code: 'PGRST205',
+   386→   386→2026-08-03T14:39:15.575915442Z [err]    details: null,
+   387→   387→2026-08-03T14:39:15.575919402Z [err]    hint: null,
+   388→   388→2026-08-03T14:39:15.575922361Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   389→   389→2026-08-03T14:39:15.575925981Z [err]  }
+   390→   390→2026-08-03T14:39:15.575928801Z [err]  Supabase query error: {
+   391→   391→2026-08-03T14:39:15.575931821Z [err]    code: 'PGRST205',
+   392→   392→2026-08-03T14:39:15.575935491Z [err]    details: null,
+   393→   393→2026-08-03T14:39:15.575938741Z [err]    hint: null,
+   394→   394→2026-08-03T14:39:15.575942041Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   395→   395→2026-08-03T14:39:15.575944881Z [err]  }
+   396→   396→2026-08-03T14:40:05.504751330Z [err]  Supabase query error: {
+   397→   397→2026-08-03T14:40:05.504757410Z [err]    code: 'PGRST205',
+   398→   398→2026-08-03T14:40:05.504761990Z [err]    details: null,
+   399→   399→2026-08-03T14:40:05.504765579Z [err]    hint: null,
+   400→   400→2026-08-03T14:40:05.504769159Z [err]    message: "Could not find the table 'public.afk_users' in the schema cache"
+   401→   401→2026-08-03T14:40:05.504772589Z [err]  }
