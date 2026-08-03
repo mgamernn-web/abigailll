@@ -562,6 +562,9 @@ const client = new Client({
 
 client.commands = new Collection();
 const mentionCooldowns = new Map();
+const afkCache = new Map(); // In-memory AFK cache: key = 'guildId-userId'
+client.afkCache = afkCache;
+let afkDbAvailable = true; // Flag to stop querying if table is missing
 const AFK_MENTION_COOLDOWN = 30_000;
 
 // Load slash commands
@@ -3319,10 +3322,17 @@ client.on('messageCreate', async (message) => {
         username: message.author.username,
       }, { onConflict: 'user_id,guild_id' });
 
-    if (error) {
-      console.error('Supabase upsert error:', error);
-      return message.reply('💔 Something went wrong! **Quick fix:** Go to Supabase Dashboard → SQL Editor → Run: `ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;`').catch(console.error);
-    }
+    if (error) { return; }
+
+    // Update in-memory cache
+    afkCache.set(`${message.guild.id}-${message.author.id}`, {
+      user_id: message.author.id,
+      guild_id: message.guild.id,
+      afk_time: new Date().toISOString(),
+      reason,
+      avatar_url: message.author.displayAvatarURL({ dynamic: true, size: 256 }),
+      username: message.author.username,
+    });
 
     const afkTs = Math.floor(Date.now() / 1000);
     const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n📝 **Reason:** \`${reason}\`\n⏱️ Went AFK: <t:${afkTs}:f> (<t:${afkTs}:R>)`;
@@ -3356,6 +3366,44 @@ client.on('messageCreate', async (message) => {
 
   /* ── AFK Return ── */
   try {
+    if (!supabase || !afkDbAvailable) return;
+
+    // Check in-memory cache first
+    const cacheKey = `${message.guild.id}-${message.author.id}`;
+    const cached = afkCache.get(cacheKey);
+    if (cached) {
+      const afkData = cached;
+      const away = timeSince(afkData.afk_time);
+      const returnDesc = `${pick(AFK_RETURN_MESSAGES)}\n\uD83D\uDCDD \`${afkData.reason}\` \u2022 \u23F1\uFE0F Away for \`${away}\``;
+      const embed = new EmbedBuilder()
+        .setColor(0xFF1493)
+        .setAuthor({ name: `${username} is back!`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+        .setTitle('\uD83D\uDC9D Welcome Back!')
+        .setDescription(returnDesc)
+        .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
+        .setTimestamp();
+      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
+      if (returnMsg) setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
+      afkCache.delete(cacheKey);
+      // Remove role & nickname from cache hit
+      const isReturnOwner = message.guild.ownerId === message.author.id;
+      const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+      const botCanManageRoles = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+      const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+      if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id) && botCanManageRoles) {
+        try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) {}
+      }
+      if (message.member && !isReturnOwner && botCanManageNicknames) {
+        try {
+          const normalNick = getNormalNickname(message.member.nickname, message.author.username);
+          await message.member.setNickname(normalNick, 'User returned from AFK');
+        } catch (e) {}
+      }
+      try { await supabase.from('afk_users').delete().eq('user_id', message.author.id).eq('guild_id', message.guild.id); } catch(e) {}
+      return;
+    }
+
+    // Cache miss — query DB
     const { data: afkData, error: dbError } = await supabase
       .from('afk_users')
       .select('*')
@@ -3363,7 +3411,10 @@ client.on('messageCreate', async (message) => {
       .eq('guild_id', message.guild.id)
       .maybeSingle();
 
-    if (dbError) { console.error('Supabase query error:', dbError); return; }
+    if (dbError) {
+      if (afkDbAvailable) { console.error('AFK DB error, disabling AFK checks:', dbError.message); afkDbAvailable = false; }
+      return;
+    }
 
     if (afkData) {
       const away = timeSince(afkData.afk_time);
@@ -3377,8 +3428,7 @@ client.on('messageCreate', async (message) => {
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setTimestamp();
       // Send in server channel — auto-delete after 1s
-      console.log(`[AFK RETURN] Sending welcome back in channel: ${message.channel.name} (${message.channel.id})`);
-      const returnMsg = await message.channel.send({ embeds: [embed] }).catch((err) => { console.error('[AFK RETURN] Channel send failed:', err.message); return null; });
+      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
       if (returnMsg) {
         setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
       }
@@ -3399,7 +3449,7 @@ client.on('messageCreate', async (message) => {
       }
       await supabase.from('afk_users').delete().eq('user_id', message.author.id).eq('guild_id', message.guild.id);
     }
-  } catch (err) { console.error('Error in AFK return handler:', err); }
+  } catch (err) {}
 
   /* ── AFK Mention ── */
   if (message.mentions.users.size > 0) {
@@ -3411,14 +3461,21 @@ client.on('messageCreate', async (message) => {
         const lastNotified = mentionCooldowns.get(cooldownKey);
         if (lastNotified && now - lastNotified < AFK_MENTION_COOLDOWN) continue;
 
-        const { data: mentionedAfk, error: dbError } = await supabase
-          .from('afk_users')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('guild_id', message.guild.id)
-          .maybeSingle();
+        // Check in-memory cache first
+        const mCacheKey = `${message.guild.id}-${userId}`;
+        let mentionedAfk = afkCache.get(mCacheKey);
 
-        if (dbError) { console.error('Supabase query error:', dbError); break; }
+        if (!mentionedAfk && supabase && afkDbAvailable) {
+          const { data: dbData, error: dbError } = await supabase
+            .from('afk_users')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('guild_id', message.guild.id)
+            .maybeSingle();
+          if (dbError) { if (afkDbAvailable) { afkDbAvailable = false; } break; }
+          if (dbData) afkCache.set(mCacheKey, dbData);
+          mentionedAfk = dbData;
+        }
         if (mentionedAfk) {
           const away = timeSince(mentionedAfk.afk_time);
           // Quick channel message — auto-delete after 1s
@@ -3448,7 +3505,7 @@ client.on('messageCreate', async (message) => {
           break;
         }
       }
-    } catch (err) { console.error('Error in AFK mention handler:', err); }
+    } catch (err) {}
   }
 
   if (mentionCooldowns.size > 1000) {

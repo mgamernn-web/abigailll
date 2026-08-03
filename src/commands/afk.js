@@ -99,10 +99,21 @@ module.exports = {
       }, { onConflict: 'user_id,guild_id' });
 
     if (error) {
-      console.error('Supabase upsert error:', error);
       return interaction.reply({
-        content: '💔 Something went wrong! **Quick fix:** Go to Supabase Dashboard → SQL Editor → Run:\n```sql\nALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;\n```',
+        content: '💔 Something went wrong!',
         flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    // Update in-memory cache
+    if (interaction.client.afkCache) {
+      interaction.client.afkCache.set(`${interaction.guild.id}-${interaction.user.id}`, {
+        user_id: interaction.user.id,
+        guild_id: interaction.guild.id,
+        afk_time: new Date().toISOString(),
+        reason,
+        avatar_url: avatarURL,
+        username: interaction.user.username,
       });
     }
 
