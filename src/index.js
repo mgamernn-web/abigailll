@@ -2236,6 +2236,7 @@ client.on('messageCreate', async (message) => {
     '.bow':      { emoji: '🙇', text: 'bowed to',      color: 0x9B59B6, api: 'salute' },
     '.wink':     { emoji: '😉', text: 'winked at',     color: 0xFF85A2, api: 'wink' },
     '.cry':      { emoji: '😢', text: 'is crying with', color: 0x6495ED, api: 'cry' },
+    '.strangle': { emoji: '🤬', text: 'strangled',      color: 0x8B0000, api: 'strangle' },
     '.smile':    { emoji: '😁', text: 'smiled at',     color: 0xFFD700, api: 'smile' },
   };
 
