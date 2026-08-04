@@ -2236,7 +2236,7 @@ client.on('messageCreate', async (message) => {
     '.bow':      { emoji: '🙇', text: 'bowed to',      color: 0x9B59B6, api: 'salute' },
     '.wink':     { emoji: '😉', text: 'winked at',     color: 0xFF85A2, api: 'wink' },
     '.cry':      { emoji: '😢', text: 'is crying with', color: 0x6495ED, api: 'cry' },
-    '.strangle': { emoji: '🤬', text: 'strangled',      color: 0x8B0000, api: 'punch' },
+    '.strangle': { emoji: '🤬', text: 'strangled',      color: 0x8B0000, tenor: 'anime strangle' },
     '.smile':    { emoji: '😁', text: 'smiled at',     color: 0xFFD700, api: 'smile' },
   };
 
@@ -2249,19 +2249,35 @@ client.on('messageCreate', async (message) => {
 
     try {
       const https = require('https');
-      const gifUrl = await new Promise((resolve, reject) => {
-        const apiEp = cfg.api;
-        https.get(`https://nekos.best/api/v2/${apiEp}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(data);
-              resolve(parsed.results?.[0]?.url || parsed.url);
-            } catch (e) { reject(e); }
-          });
-        }).on('error', reject);
-      });
+      let gifUrl;
+      if (cfg.tenor) {
+        gifUrl = await new Promise((resolve, reject) => {
+          https.get(`https://g.tenor.com/v1/search?q=${encodeURIComponent(cfg.tenor)}&key=LIVDSRZULELA&contentfilter=high&limit=20&media_filter=gif`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try {
+                const parsed = JSON.parse(data);
+                const results = parsed.results;
+                resolve(results?.[Math.floor(Math.random() * results.length)]?.media?.[0]?.gif?.url);
+              } catch (e) { reject(e); }
+            });
+          }).on('error', reject);
+        });
+      } else {
+        gifUrl = await new Promise((resolve, reject) => {
+          https.get(`https://nekos.best/api/v2/${cfg.api}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try {
+                const parsed = JSON.parse(data);
+                resolve(parsed.results?.[0]?.url || parsed.url);
+              } catch (e) { reject(e); }
+            });
+          }).on('error', reject);
+        });
+      }
 
       const embed = new EmbedBuilder()
         .setColor(cfg.color)
