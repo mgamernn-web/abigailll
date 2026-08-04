@@ -2236,7 +2236,13 @@ client.on('messageCreate', async (message) => {
     '.bow':      { emoji: '🙇', text: 'bowed to',      color: 0x9B59B6, api: 'salute' },
     '.wink':     { emoji: '😉', text: 'winked at',     color: 0xFF85A2, api: 'wink' },
     '.cry':      { emoji: '😢', text: 'is crying with', color: 0x6495ED, api: 'cry' },
-    '.strangle': { emoji: '🤬', text: 'strangled',      color: 0x8B0000, tenor: 'anime strangle' },
+    '.strangle': { emoji: '🤬', text: 'strangled',      color: 0x8B0000, gifs: [
+      'https://media.tenor.com/3POm4xGFkV4AAAAC/anime-strangle.gif',
+      'https://media.tenor.com/L_x5E-PJStoAAAAC/anime-choke.gif',
+      'https://media.tenor.com/s6KGV0jE6qEAAAAC/anime-choking.gif',
+      'https://media.tenor.com/ITxz_YnZI1UAAAAC/anime-angry-choke.gif',
+      'https://media.tenor.com/M1VUyEbXkCoAAAAC/anime-strangle-mad.gif',
+    ] },
     '.smile':    { emoji: '😁', text: 'smiled at',     color: 0xFFD700, api: 'smile' },
   };
 
@@ -2250,20 +2256,8 @@ client.on('messageCreate', async (message) => {
     try {
       const https = require('https');
       let gifUrl;
-      if (cfg.tenor) {
-        gifUrl = await new Promise((resolve, reject) => {
-          https.get(`https://g.tenor.com/v1/search?q=${encodeURIComponent(cfg.tenor)}&key=LIVDSRZULELA&contentfilter=high&limit=20&media_filter=gif`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-              try {
-                const parsed = JSON.parse(data);
-                const results = parsed.results;
-                resolve(results?.[Math.floor(Math.random() * results.length)]?.media?.[0]?.gif?.url);
-              } catch (e) { reject(e); }
-            });
-          }).on('error', reject);
-        });
+      if (cfg.gifs) {
+        gifUrl = cfg.gifs[Math.floor(Math.random() * cfg.gifs.length)];
       } else {
         gifUrl = await new Promise((resolve, reject) => {
           https.get(`https://nekos.best/api/v2/${cfg.api}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
