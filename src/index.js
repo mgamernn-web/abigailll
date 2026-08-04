@@ -2147,7 +2147,7 @@ client.on('messageCreate', async (message) => {
 
   /* ═══════════════════════════════════════════
      💋 Anime GIF Interaction Commands
-     .slap .kiss .kick .angry .kill .pat .bow
+     .slap .kiss .kick .angry .kill .pat .hug .bow
      Using nekos.best API — real anime GIFs
      ═══════════════════════════════════════════ */
   const GIF_COMMANDS = {
@@ -2157,6 +2157,7 @@ client.on('messageCreate', async (message) => {
     '.angry': { emoji: '😡', text: 'is angry at', color: 0xFF2222, api: 'angry' },
     '.kill':  { emoji: '💀', text: 'killed',      color: 0x8B0000, api: 'shoot' },
     '.pat':   { emoji: '🥺', text: 'patted',       color: 0xFFB6C1, api: 'pat' },
+    '.hug':   { emoji: '🤗', text: 'hugged',       color: 0xFF85A2, api: 'hug' },
     '.bow':   { emoji: '🙇', text: 'bowed to',     color: 0x9B59B6, api: 'salute' },
   };
 
