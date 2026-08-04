@@ -3360,9 +3360,10 @@ client.on('messageCreate', async (message) => {
       } catch (e) { /* silently skip — hierarchy issue */ }
     }
 
-    const afkPrefixMsg = await message.reply({ embeds: [embed] }).catch(console.error);
+    const afkPrefixMsg = await message.reply({ embeds: [embed] }).catch(() => null);
     if (afkPrefixMsg) setTimeout(() => { afkPrefixMsg.delete().catch(() => {}); }, 1000);
     return;
+  }
 
   /* ── AFK Return ── */
   try {
