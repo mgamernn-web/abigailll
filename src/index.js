@@ -2165,25 +2165,34 @@ client.on('messageCreate', async (message) => {
 
   /* ═══════════════════════════════════════════
      💋 Anime GIF Interaction Commands
-     .slap .kiss .kick .angry .kill .pat .hug .bow
      Using nekos.best API — real anime GIFs
      ═══════════════════════════════════════════ */
   const GIF_COMMANDS = {
-    '.slap':  { emoji: '👋', text: 'slapped',    color: 0xFF4444, api: 'slap' },
-    '.kiss':  { emoji: '💋', text: 'kissed',      color: 0xFF69B4, api: 'kiss' },
-    '.kick':  { emoji: '👢', text: 'kicked',      color: 0xFF8800, api: 'kick' },
-    '.angry': { emoji: '😡', text: 'is angry at', color: 0xFF2222, api: 'angry' },
-    '.kill':  { emoji: '💀', text: 'killed',      color: 0x8B0000, api: 'shoot' },
-    '.pat':   { emoji: '🥺', text: 'patted',       color: 0xFFB6C1, api: 'pat' },
-    '.hug':   { emoji: '🤗', text: 'hugged',       color: 0xFF85A2, api: 'hug' },
-    '.bow':   { emoji: '🙇', text: 'bowed to',     color: 0x9B59B6, api: 'salute' },
+    '.slap':     { emoji: '👋', text: 'slapped',      color: 0xFF4444, api: 'slap' },
+    '.kiss':     { emoji: '💋', text: 'kissed',        color: 0xFF69B4, api: 'kiss' },
+    '.kick':     { emoji: '👢', text: 'kicked',        color: 0xFF8800, api: 'kick' },
+    '.angry':    { emoji: '😡', text: 'is angry at',   color: 0xFF2222, api: 'angry' },
+    '.kill':     { emoji: '💀', text: 'killed',        color: 0x8B0000, api: 'shoot' },
+    '.pat':      { emoji: '🥺', text: 'patted',        color: 0xFFB6C1, api: 'pat' },
+    '.hug':      { emoji: '🤗', text: 'hugged',        color: 0xFF85A2, api: 'hug' },
+    '.cuddle':   { emoji: '🛏️', text: 'cuddled',       color: 0xE8A0BF, api: 'cuddle' },
+    '.poke':     { emoji: '👆', text: 'poked',         color: 0x87CEEB, api: 'poke' },
+    '.blush':    { emoji: '😊', text: 'is blushing at', color: 0xFFB7C5, api: 'blush' },
+    '.wave':     { emoji: '👋', text: 'waved at',      color: 0xFFD700, api: 'wave' },
+    '.highfive': { emoji: '✋', text: 'high-fived',    color: 0x00CED1, api: 'highfive' },
+    '.bite':     { emoji: '🦷', text: 'bit',           color: 0xDC143C, api: 'bite' },
+    '.bow':      { emoji: '🙇', text: 'bowed to',      color: 0x9B59B6, api: 'salute' },
+    '.wink':     { emoji: '😉', text: 'winked at',     color: 0xFF85A2, api: 'wink' },
+    '.cry':      { emoji: '😢', text: 'is crying with', color: 0x6495ED, api: 'cry' },
+    '.smile':    { emoji: '😁', text: 'smiled at',     color: 0xFFD700, api: 'smile' },
   };
 
   const gifCmd = Object.keys(GIF_COMMANDS).find(cmd => msgContent.startsWith(cmd));
   if (gifCmd) {
     const cfg = GIF_COMMANDS[gifCmd];
     const target = message.mentions.users.first();
-    const noTargetText = gifCmd === '.angry' ? 'is angry!' : gifCmd === '.kill' ? 'killed the air!' : gifCmd === '.pat' ? 'patted the air!' : gifCmd === '.bow' ? 'bowed!' : `${cfg.text} themselves!`;
+    const selfActions = { '.angry': 'is angry!', '.kill': 'killed the air!', '.pat': 'patted the air!', '.bow': 'bowed!', '.wave': 'waved!', '.wink': 'winked!', '.cry': 'is crying!', '.smile': 'smiled!', '.blush': 'is blushing!' };
+    const noTargetText = selfActions[gifCmd] || `${cfg.text} themselves!`;
 
     try {
       const https = require('https');
@@ -2217,6 +2226,345 @@ client.on('messageCreate', async (message) => {
         ? `${cfg.emoji} **${message.member.displayName}** ${cfg.text} **${target.displayName}**!`
         : `${cfg.emoji} **${message.member.displayName}** ${noTargetText}`).catch(() => {});
     }
+  }
+
+  /* ═══════════════════════════════════════════
+     🛠️  Utility Commands
+     ═══════════════════════════════════════════ */
+
+  /* ── .avatar @user ── */
+  if (msgContent === '.avatar' || msgContent.startsWith('.avatar ')) {
+    const target = message.mentions.users.first() || message.author;
+    const member = message.mentions.members.first() || message.member;
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle(`${target.username}'s Avatar`)
+      .setImage(member.displayAvatarURL({ dynamic: true, size: 1024 }))
+      .setFooter({ text: `Requested by ${message.member.displayName}` })
+      .setTimestamp();
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  /* ── .banner @user ── */
+  if (msgContent === '.banner' || msgContent.startsWith('.banner ')) {
+    const target = message.mentions.users.first() || message.author;
+    try {
+      const fetched = await client.users.fetch(target.id, { force: true });
+      if (fetched.banner) {
+        const embed = new EmbedBuilder()
+          .setColor(0x5865F2)
+          .setTitle(`${fetched.username}'s Banner`)
+          .setImage(fetched.bannerURL({ dynamic: true, size: 1024 }))
+          .setFooter({ text: `Requested by ${message.member.displayName}` })
+          .setTimestamp();
+        return message.channel.send({ embeds: [embed] });
+      }
+      return message.reply(`${target.username} has no banner set.`).catch(() => {});
+    } catch (e) {
+      return message.reply('Could not fetch banner.').catch(() => {});
+    }
+  }
+
+  /* ── .serverinfo ── */
+  if (msgContent === '.serverinfo') {
+    const g = message.guild;
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setThumbnail(g.iconURL({ dynamic: true }))
+      .setTitle(g.name)
+      .addFields(
+        { name: '📋 ID', value: g.id, inline: true },
+        { name: '👑 Owner', value: `<@${g.ownerId}>`, inline: true },
+        { name: '👥 Members', value: `${g.memberCount}`, inline: true },
+        { name: '🤖 Bots', value: `${g.members.cache.filter(m => m.user.bot).size}`, inline: true },
+        { name: '📢 Channels', value: `${g.channels.cache.size}`, inline: true },
+        { name: '🎯 Roles', value: `${g.roles.cache.size}`, inline: true },
+        { name: '🎉 Boosts', value: `Level ${g.premiumTier} (${g.premiumSubscriptionCount || 0})`, inline: true },
+        { name: '📅 Created', value: `<t:${Math.floor(g.createdTimestamp / 1000)}:R>`, inline: true },
+        { name: '🔒 Verification', value: g.verificationLevel, inline: true },
+      )
+      .setFooter({ text: `Requested by ${message.member.displayName}` })
+      .setTimestamp();
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  /* ── .userinfo @user ── */
+  if (msgContent === '.userinfo' || msgContent.startsWith('.userinfo ')) {
+    const target = message.mentions.members.first() || message.member;
+    const user = target.user;
+    const roles = target.roles.cache.filter(r => r.id !== message.guild.id).map(r => r.toString()).join(' ') || 'None';
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setAuthor({ name: user.tag, iconURL: user.displayAvatarURL({ dynamic: true }) })
+      .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 1024 }))
+      .addFields(
+        { name: '📋 User ID', value: user.id, inline: true },
+        { name: '📅 Joined', value: `<t:${Math.floor(target.joinedTimestamp / 1000)}:R>`, inline: true },
+        { name: '🎨 Created', value: `<t:${Math.floor(user.createdTimestamp / 1000)}:R>`, inline: true },
+        { name: '🎭 Roles', value: roles.length > 1024 ? roles.slice(0, 1021) + '...' : roles, inline: false },
+        { name: '👤 Display Name', value: target.displayName, inline: true },
+        { name: '🤖 Bot?', value: user.bot ? 'Yes' : 'No', inline: true },
+      )
+      .setFooter({ text: `Requested by ${message.member.displayName}` })
+      .setTimestamp();
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  /* ── .poll question | option1 | option2 | ... ── */
+  if (msgContent.startsWith('.poll ')) {
+    const args = message.content.slice(6).trim();
+    const parts = args.split('|').map(s => s.trim()).filter(Boolean);
+    if (parts.length < 3) return message.reply('Usage: `.poll Question | Option 1 | Option 2 | ...` (min 2 options)').catch(() => {});
+    const question = parts[0];
+    const options = parts.slice(1, 11); // max 10 options
+    const emojis = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+    const pollEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle(`📊 ${question}`)
+      .setDescription(options.map((o, i) => `${emojis[i]} ${o}`).join('\n'))
+      .setFooter({ text: `Poll by ${message.member.displayName}` })
+      .setTimestamp();
+    const pollMsg = await message.channel.send({ embeds: [pollEmbed] });
+    for (let i = 0; i < options.length; i++) await pollMsg.react(emojis[i]);
+    return;
+  }
+
+  /* ── .remind 10m do homework ── */
+  if (msgContent.startsWith('.remind ')) {
+    if (!client.reminders) client.reminders = new Map();
+    const args = message.content.slice(8).trim();
+    const match = args.match(/^(\\d+[smh])\s+(.*)/);
+    if (!match) return message.reply('Usage: `.remind 10m do homework` (e.g. 30s, 5m, 1h)').catch(() => {});
+    let ms = 0;
+    const num = parseInt(match[1]);
+    const unit = match[1].slice(-1);
+    if (unit === 's') ms = num * 1000;
+    else if (unit === 'm') ms = num * 60 * 1000;
+    else if (unit === 'h') ms = num * 3600 * 1000;
+    else return message.reply('Invalid time unit. Use `s`, `m`, or `h`.').catch(() => {});
+    if (ms < 5000) return message.reply('Minimum 5 seconds.').catch(() => {});
+    if (ms > 86400000) return message.reply('Maximum 24 hours.').catch(() => {});
+    const reminderText = match[2] || 'Nothing specified';
+    setTimeout(async () => {
+      try {
+        await message.author.send(`⏰ **Reminder:** ${reminderText}`);
+      } catch (e) {
+        try { await message.channel.send(`⏰ <@${message.author.id}> Reminder: ${reminderText}`); } catch (e2) {}
+      }
+    }, ms);
+    return message.reply(`⏰ Set reminder for **${match[1]}** — "${reminderText}"`).catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
+     🎭 Fun Response Commands
+     ═══════════════════════════════════════════ */
+
+  /* ── .ship @user1 @user2 ── */
+  if (msgContent.startsWith('.ship ')) {
+    const mentions = [...message.mentions.users.values()];
+    if (mentions.length < 2) return message.reply('Tag 2 users: `.ship @user1 @user2`').catch(() => {});
+    const a = mentions[0], b = mentions[1];
+    const seed = (BigInt(a.id) + BigInt(b.id)) % 101n;
+    const pct = Number(seed);
+    const heart = pct > 80 ? '❤️‍🔥' : pct > 50 ? '💕' : pct > 25 ? '💛' : '💔';
+    const tier = pct > 80 ? 'Soulmates!' : pct > 60 ? 'Great match!' : pct > 40 ? 'Could work!' : pct > 20 ? 'Meh...' : 'Not meant to be...';
+    const embed = new EmbedBuilder()
+      .setColor(pct > 50 ? 0xFF69B4 : 0x5865F2)
+      .setTitle(`${heart} Love Meter ${heart}`)
+      .setDescription(`**${a.username}** x **${b.username}**`)
+      .addFields(
+        { name: '💕 Love Score', value: `**${pct}%**`, inline: true },
+        { name: '📝 Verdict', value: tier, inline: true },
+      )
+      .setFooter({ text: 'Abigail 💕' })
+      .setTimestamp();
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  /* ── .rate @user ── */
+  if (msgContent.startsWith('.rate ')) {
+    const target = message.mentions.users.first();
+    const name = target ? target.username : message.content.slice(6).trim();
+    const hash = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
+    const rating = (hash % 10) + 1;
+    const bar = '★'.repeat(rating) + '☆'.repeat(10 - rating);
+    return message.reply(`📊 **${name}** — ${bar} **${rating}/10**`).catch(() => {});
+  }
+
+  /* ── .meme ── */
+  if (msgContent === '.meme') {
+    const memes = [
+      'https://i.imgflip.com/4acd7j.jpg','https://i.imgflip.com/4t0m5.jpg','https://i.imgflip.com/2fm6x.jpg',
+      'https://i.imgflip.com/30b1gx.jpg','https://i.imgflip.com/4/1h7in3.jpg','https://i.imgflip.com/4/3umnzg.jpg',
+      'https://i.imgflip.com/4/4t0m5.jpg','https://i.imgflip.com/4/2fm6x.jpg','https://i.imgflip.com/4/g0rjno.jpg',
+      'https://i.imgflip.com/4/1otk96.jpg','https://i.imgflip.com/4/261o6j.jpg','https://i.imgflip.com/4/4m0p5l.jpg',
+    ];
+    const url = memes[Math.floor(Math.random() * memes.length)];
+    const embed = new EmbedBuilder().setColor(0xFFD700).setImage(url).setFooter({ text: 'Abigail 💕' }).setTimestamp();
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  /* ── .fact ── */
+  if (msgContent === '.fact') {
+    const facts = [
+      'Honey never spoils. Archaeologists found 3000-year-old honey in Egyptian tombs that was still edible.',
+      'Octopuses have three hearts and blue blood.',
+      'A group of flamingos is called a "flamboyance".',
+      'Bananas are berries, but strawberries are not.',
+      'The shortest war in history was between Britain and Zanzibar in 1896 — it lasted 38 minutes.',
+      'A day on Venus is longer than a year on Venus.',
+      'Sharks are older than trees. Sharks existed 400 million years ago, trees only 350 million.',
+      'Cows have best friends and get stressed when separated.',
+      'An average cumulonimbus cloud weighs about 1.1 million pounds.',
+      'There are more possible iterations of a game of chess than atoms in the observable universe.',
+    ];
+    return message.reply(`💡 ${facts[Math.floor(Math.random() * facts.length)]}`).catch(() => {});
+  }
+
+  /* ── .quote ── */
+  if (msgContent === '.quote') {
+    const quotes = [
+      { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
+      { text: 'In the middle of difficulty lies opportunity.', author: 'Albert Einstein' },
+      { text: 'Life is what happens when you are busy making other plans.', author: 'John Lennon' },
+      { text: 'Be yourself; everyone else is already taken.', author: 'Oscar Wilde' },
+      { text: 'The future belongs to those who believe in the beauty of their dreams.', author: 'Eleanor Roosevelt' },
+      { text: 'It does not matter how slowly you go as long as you do not stop.', author: 'Confucius' },
+      { text: 'Everything you can imagine is real.', author: 'Pablo Picasso' },
+      { text: 'The best time to plant a tree was 20 years ago. The second best time is now.', author: 'Chinese Proverb' },
+    ];
+    const q = quotes[Math.floor(Math.random() * quotes.length)];
+    const embed = new EmbedBuilder().setColor(0x5865F2).setDescription(`*"${q.text}"*`).setFooter({ text: `— ${q.author}` }).setTimestamp();
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  /* ── .joke ── */
+  if (msgContent === '.joke') {
+    const jokes = [
+      'Why do programmers prefer dark mode? Because light attracts bugs. 🐛',
+      'Why was the JavaScript developer sad? Because he did not Node how to Express himself. 😢',
+      'A SQL query walks into a bar, sees two tables and asks... "Can I JOIN you?" 🍺',
+      'Why do Java developers wear glasses? Because they cannot C#. 👓',
+      'What is a programmer\'s favorite hangout place? Foo Bar. 🎉',
+      'There are only 10 types of people in this world: those who understand binary and those who don\'t. 🤓',
+      'Why did the developer go broke? Because he used up all his cache. 💸',
+      'What did the router say to the doctor? It hurts when IP. 🏥',
+    ];
+    return message.reply(`😂 ${jokes[Math.floor(Math.random() * jokes.length)]}`).catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
+     🔒 Moderation Commands (Prefix)
+     ═══════════════════════════════════════════ */
+
+  /* ── .warn @user reason ── */
+  if (msgContent.startsWith('.warn ')) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
+      return message.reply('You need **Moderate Members** permission.').catch(() => {});
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('Tag someone: `.warn @user reason`').catch(() => {});
+    if (!target.moderatable) return message.reply('Cannot moderate this user.').catch(() => {});
+    const reason = message.content.slice(7).replace(/<@!?\d+>/, '').trim() || 'No reason given';
+    try {
+      const embed = new EmbedBuilder()
+        .setColor(0xFFAA00)
+        .setTitle(`⚠️ Warning`)
+        .setDescription(`**${target.user.tag}** has been warned.`)
+        .addFields({ name: '📝 Reason', value: reason, inline: true }, { name: '👮 By', value: message.member.displayName, inline: true })
+        .setTimestamp();
+      await message.channel.send({ embeds: [embed] });
+      try {
+        await target.send(`⚠️ You were warned in **${message.guild.name}**\n**Reason:** ${reason}`);
+      } catch (e) {}
+    } catch (e) {}
+    return;
+  }
+
+  /* ── .mute @user (10m default) ── */
+  if (msgContent.startsWith('.mute ')) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
+      return message.reply('You need **Moderate Members** permission.').catch(() => {});
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('Tag someone: `.mute @user`').catch(() => {});
+    if (!target.moderatable) return message.reply('Cannot moderate this user.').catch(() => {});
+    try {
+      await target.timeout(10 * 60 * 1000, `Muted by ${message.author.tag}`);
+      const embed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle(`🔇 Muted`)
+        .setDescription(`**${target.user.tag}** has been muted for 10 minutes.`)
+        .setFooter({ text: `By ${message.member.displayName}` })
+        .setTimestamp();
+      await message.channel.send({ embeds: [embed] });
+    } catch (e) {
+      message.reply('Failed to mute. Check permissions/role hierarchy.').catch(() => {});
+    }
+    return;
+  }
+
+  /* ── .unmute @user ── */
+  if (msgContent.startsWith('.unmute ')) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
+      return message.reply('You need **Moderate Members** permission.').catch(() => {});
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('Tag someone: `.unmute @user`').catch(() => {});
+    try {
+      await target.timeout(null, `Unmuted by ${message.author.tag}`);
+      const embed = new EmbedBuilder()
+        .setColor(0x00FF00)
+        .setTitle(`🔊 Unmuted`)
+        .setDescription(`**${target.user.tag}** has been unmuted.`)
+        .setFooter({ text: `By ${message.member.displayName}` })
+        .setTimestamp();
+      await message.channel.send({ embeds: [embed] });
+    } catch (e) {
+      message.reply('Failed to unmute.').catch(() => {});
+    }
+    return;
+  }
+
+  /* ── .purge [count] ── */
+  if (msgContent.startsWith('.purge')) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages))
+      return message.reply('You need **Manage Messages** permission.').catch(() => {});
+    const count = parseInt(message.content.split(/\s+/)[1]) || 10;
+    if (count < 1 || count > 100) return message.reply('Purge count: 1-100').catch(() => {});
+    try {
+      const deleted = await message.channel.bulkDelete(count + 1, true);
+      const confirm = await message.channel.send(`🗑️ Deleted **${deleted.size - 1}** messages.`).catch(() => null);
+      if (confirm) setTimeout(() => { confirm.delete().catch(() => {}); }, 3000);
+    } catch (e) {
+      message.reply('Failed to purge. Messages older than 14 days cannot be bulk deleted.').catch(() => {});
+    }
+    return;
+  }
+
+  /* ── .lock ── */
+  if (msgContent === '.lock') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
+      return message.reply('You need **Manage Channels** permission.').catch(() => {});
+    try {
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
+      const embed = new EmbedBuilder().setColor(0xFF0000).setTitle('🔒 Channel Locked').setDescription(`This channel has been locked by ${message.member.displayName}.`).setTimestamp();
+      await message.channel.send({ embeds: [embed] });
+    } catch (e) {
+      message.reply('Failed to lock channel.').catch(() => {});
+    }
+    return;
+  }
+
+  /* ── .unlock ── */
+  if (msgContent === '.unlock') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
+      return message.reply('You need **Manage Channels** permission.').catch(() => {});
+    try {
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: true });
+      const embed = new EmbedBuilder().setColor(0x00FF00).setTitle('🔓 Channel Unlocked').setDescription(`This channel has been unlocked by ${message.member.displayName}.`).setTimestamp();
+      await message.channel.send({ embeds: [embed] });
+    } catch (e) {
+      message.reply('Failed to unlock channel.').catch(() => {});
+    }
+    return;
   }
 
   /* ═══════════════════════════════════════════
