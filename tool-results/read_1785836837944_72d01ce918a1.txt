@@ -1,0 +1,2002 @@
+  1505→            { name: '💬 Message', value: message.content.length > 1024 ? message.content.slice(0, 1021) + '...' : message.content, inline: false },
+  1506→            { name: '🔗 Jump', value: `[Click to view](${message.url})`, inline: false }
+  1507→          )
+  1508→          .setFooter({ text: `Even if deleted, you got this! | MSG ID: ${message.id}` })
+  1509→          .setTimestamp();
+  1510→        await owner.send({ embeds: [embed] });
+  1511→      } catch (err) {
+  1512→        // DM might be blocked, silently skip
+  1513→      }
+  1514→    }
+  1515→  }
+  1516→
+  1517→  /* ── DM Handler ── */
+  1518→  if (!message.guild) {
+  1519→    const msgContent = message.content.toLowerCase().trim();
+  1520→
+  1521→    /* ── Hand Cricket DM Fallback (text-based, for users without button support) ── */
+  1522→    const hcChannelId = hcPlayerMap.get(message.author.id);
+  1523→    if (hcChannelId) {
+  1524→      const hcGame = activeHCGames.get(hcChannelId);
+  1525→      if (hcGame && hcGame.phase !== HC_PHASE.ENDED) {
+  1526→        const num = parseInt(msgContent);
+  1527→
+  1528→        // Coin toss for single player (heads/tails) — DM fallback
+  1529→        if (hcGame.isBotGame && hcGame.phase === HC_PHASE.TOSS && (msgContent === 'heads' || msgContent === 'tails')) {
+  1530→          const result = hcGame.coinTossChoice(message.author.id, msgContent);
+  1531→          if (!result.success) return message.reply(result.message);
+  1532→
+  1533→          const channel = hcGame.channel;
+  1534→          if (!channel) return;
+  1535→
+  1536→          const tossEmbed = new EmbedBuilder()
+  1537→            .setColor(result.playerWon ? COLORS.SUCCESS : COLORS.DANGER)
+  1538→            .setTitle('🪙 Coin Toss Result!')
+  1539→            .setDescription(
+  1540→              `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1541→              `┣ 🪙 **Coin:** ${result.coinResult === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+  1542→              `┣ 🎯 **You chose:** ${result.playerChoice === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+  1543→              `┗ ${result.playerWon ? '🏆 **You won the toss!**' : '😢 **You lost the toss!**'}\n\n${result.playerWon ? 'Click **Bat** or **Bowl** in channel, or DM me!' : 'Bot is choosing...'}`
+  1544→            )
+  1545→            .setTimestamp();
+  1546→          await channel.send({ embeds: [tossEmbed], components: result.playerWon ? [getBatBowlButtons(hcChannelId)] : [] });
+  1547→
+  1548→          if (!result.playerWon) {
+  1549→            const botChoice = hcGame.botChooseBatBowl();
+  1550→            const botChose = botChoice.battingFirst === hcGame.player2Id ? 'bat' : 'bowl';
+  1551→            const playerRole = botChose === 'bat' ? 'bowl' : 'bat';
+  1552→
+  1553→            const botChoiceEmbed = new EmbedBuilder()
+  1554→              .setColor(COLORS.WARNING)
+  1555→              .setTitle('🤖 Bot chose to ' + botChose + '!')
+  1556→              .setDescription(
+  1557→                `━━━━━━━━━━━━━━━━━━━\n` +
+  1558→                `┣ 🤖 **${hcGame.botProfile.name}**: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
+  1559→                `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
+  1560→                `┗ 👇 Click a number button below!`
+  1561→              )
+  1562→              .setFooter({ text: '🏏 King Kohli Mode | No DM needed!' })
+  1563→              .setTimestamp();
+  1564→            await channel.send({ embeds: [botChoiceEmbed], components: getNumberButtons(hcChannelId) });
+  1565→
+  1566→            hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1567→          }
+  1568→          return;
+  1569→        }
+  1570→
+  1571→        // bat/bowl choice from DM — fallback
+  1572→        if (hcGame.phase === HC_PHASE.TOSS_CHOICE && (msgContent === 'bat' || msgContent === 'bowl')) {
+  1573→          const result = hcGame.chooseBatBowl(message.author.id, msgContent);
+  1574→          if (!result.success) return message.reply(result.message);
+  1575→
+  1576→          const channel = hcGame.channel;
+  1577→          if (channel) {
+  1578→            const batName = client.users.cache.get(result.battingFirst)?.username || 'Player';
+  1579→            const bowlName = client.users.cache.get(result.bowlingFirst)?.username || 'Player';
+  1580→
+  1581→            const startEmbed = new EmbedBuilder()
+  1582→              .setColor(COLORS.SUCCESS)
+  1583→              .setTitle('🏏 Match Started!')
+  1584→              .setDescription(
+  1585→                `━━━━━━━━━━━━━━━━━━━\n` +
+  1586→                `┣ 🏏 **Batting:** ${batName}\n` +
+  1587→                `┣ 🎯 **Bowling:** ${bowlName}\n` +
+  1588→                `┣ 📏 **${hcGame.maxOvers} over${hcGame.maxOvers > 1 ? 's' : ''}**, **${hcGame.maxWickets} wicket${hcGame.maxWickets > 1 ? 's' : ''}**\n` +
+  1589→                `┣ 🧤 **Catch System:** Active!\n` +
+  1590→                `┗ 👇 Click a number button below!`
+  1591→              )
+  1592→              .setFooter({ text: `🏏 Captain Cool Mode | ⏱️ ${MATCH_TURN_TIMEOUT}s per ball` })
+  1593→              .setTimestamp();
+  1594→            await channel.send({ embeds: [startEmbed], components: getNumberButtons(hcChannelId) });
+  1595→          }
+  1596→
+  1597→          hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1598→          return message.reply('🏏 Match started! Click number buttons in the channel!');
+  1599→        }
+  1600→
+  1601→        // Toss number submission (1-6) — DM fallback
+  1602→        if (hcGame.phase === HC_PHASE.TOSS && !isNaN(num) && num >= 1 && num <= 6) {
+  1603→          const result = hcGame.submitTossNumber(message.author.id, num);
+  1604→          if (!result.success) return message.reply(result.message);
+  1605→
+  1606→          if (result.message === 'waiting_for_opponent') {
+  1607→            return message.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Toss Number Recorded!').setDescription(`You chose **${num}**!\nWaiting for opponent...`).setTimestamp()] });
+  1608→          }
+  1609→
+  1610→          if (result.message === 'toss_resolved') {
+  1611→            const channel = hcGame.channel;
+  1612→            if (!channel) return;
+  1613→
+  1614→            const p1Name = client.users.cache.get(hcGame.players[0])?.username || 'Player 1';
+  1615→            const p2Name = client.users.cache.get(hcGame.players[1])?.username || 'Player 2';
+  1616→
+  1617→            const tossEmbed = new EmbedBuilder()
+  1618→              .setColor(COLORS.GOLD)
+  1619→              .setTitle('🪙 Toss Result!')
+  1620→              .setDescription(
+  1621→                `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1622→                `┣ 🎲 **${p1Name}** chose: ${EMOJI_NUMBERS[result.p1Num - 1]}\n` +
+  1623→                `┣ 🎲 **${p2Name}** chose: ${EMOJI_NUMBERS[result.p2Num - 1]}\n` +
+  1624→                `┣ ➕ **Sum:** ${result.sum} (${result.result})\n` +
+  1625→                `┗ 🏆 **Toss Winner:** <@${result.winner}>!`
+  1626→              )
+  1627→              .setFooter({ text: '🏏 Toss winner: Click Bat or Bowl!' })
+  1628→              .setTimestamp();
+  1629→            await channel.send({ embeds: [tossEmbed], components: [getBatBowlButtons(hcChannelId)] });
+  1630→
+  1631→            // Toss result already shown in channel with buttons — no DM needed
+  1632→            return;
+  1633→          }
+  1634→        }
+  1635→
+  1636→        // Play number submission during game (1-6) — DM text fallback
+  1637→        if (hcGame.phase === HC_PHASE.PLAYING && !isNaN(num) && num >= 1 && num <= 6) {
+  1638→          const isBatting = message.author.id === hcGame.battingNow;
+  1639→          const roleLabel = isBatting ? '🏏 Batting' : '🎯 Bowling';
+  1640→          const result = hcGame.submitPlayNumber(message.author.id, num);
+  1641→          if (!result.success) return message.reply(result.message);
+  1642→
+  1643→          if (result.message === 'waiting_for_opponent') {
+  1644→            const timeLeft = hcGame.getSelectionTimeRemaining?.() || MATCH_TURN_TIMEOUT;
+  1645→            return message.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${roleLabel})\n⏱️ ${timeLeft}s left!\n\nYour opponent can click buttons in the channel!`).setTimestamp()] });
+  1646→          }
+  1647→
+  1648→          // Ball resolved via DM — reuse the same logic
+  1649→          const channel = hcGame.channel;
+  1650→          if (!channel) return;
+  1651→
+  1652→          const batsmanName = client.users.cache.get(result.batsman)?.username || hcGame.botProfile?.name || 'Batsman';
+  1653→          const bowlerName = client.users.cache.get(result.bowler)?.username || hcGame.botProfile?.name || 'Bowler';
+  1654→          const remaining = hcGame.getRemainingBalls();
+  1655→
+  1656→          // Handle catch pending
+  1657→          if (result.message === 'catch_pending') {
+  1658→            const catchEmbed = new EmbedBuilder()
+  1659→              .setColor(COLORS.CATCH)
+  1660→              .setTitle('🧤 CATCH CHANCE!')
+  1661→              .setDescription(
+  1662→                `${result.commentary}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1663→                `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1664→                `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1665→                `┣ 🧤 **Fielder: ${result.catchFielder}**\n` +
+  1666→                `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets}\n` +
+  1667→                `┗ 👇 **Bowler:** Choose your catch action!`
+  1668→              )
+  1669→              .setTimestamp();
+  1670→            await channel.send({ embeds: [catchEmbed], components: [getCatchActionButtons(hcChannelId)] });
+  1671→            return message.reply('🏏 Catch pending! Bowler must choose in channel!');
+  1672→          }
+  1673→
+  1674→          if (result.message === 'catch_out') {
+  1675→            const catchEmbed = new EmbedBuilder().setColor(COLORS.WICKET).setTitle('🧤 CATCH OUT!').setDescription(`${result.commentary}\n\n**${batsmanName}** is CAUGHT!\n\n┣ 🏏 ${EMOJI_NUMBERS[result.batNum - 1]} | 🎯 ${EMOJI_NUMBERS[result.bowlNum - 1]}\n┣ 📊 ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n┗ ${result.isHatTrick ? '🎩 HAT-TRICK!' : '🧤 What a catch!'}`).setTimestamp();
+  1676→            await channel.send({ embeds: [catchEmbed] });
+  1677→            if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1678→          } else if (result.message === 'out') {
+  1679→            const outEmbed = new EmbedBuilder().setColor(COLORS.WICKET).setTitle('💀 OUT!').setDescription(`${result.commentary}\n\n**${batsmanName}** is OUT!\n\n┣ 🏏 ${EMOJI_NUMBERS[result.batNum - 1]} | 🎯 ${EMOJI_NUMBERS[result.bowlNum - 1]}\n┣ 📊 ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n┗ ${result.isHatTrick ? '🎩 HAT-TRICK!' : result.isDuck ? '🦆 GOLDEN DUCK!' : '🎯 Walks back...'}`).setTimestamp();
+  1680→            await channel.send({ embeds: [outEmbed] });
+  1681→            if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1682→          } else {
+  1683→            const runsTitle = result.isSix ? '🚀 SIXER!' : result.isFour ? '🔥 FOUR!' : `🏏 ${result.runsThisBall} Runs!`;
+  1684→            let desc = `${result.commentary}\n\n┣ 🏏 ${batsmanName}: ${EMOJI_NUMBERS[result.batNum - 1]} | 🎯 ${bowlerName}: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n┣ +${result.runsThisBall} runs! | 📊 ${result.totalRuns}/${result.wickets} (${result.balls} balls)`;
+  1685→            if (result.catchDropped) desc += `\n┣ 😰 CATCH DROPPED!`;
+  1686→            if (result.strikeRotated) desc += `\n┣ 🔄 Strike rotated!`;
+  1687→            desc += `\n┗ ${result.isSix ? '🚀 INTO ORBIT!' : result.isFour ? '🔥 Boundary!' : '✅ Good cricket!'}`;
+  1688→            const embedColor = result.isSix ? COLORS.SIX : result.isFour ? COLORS.FOUR : COLORS.SUCCESS;
+  1689→            await channel.send({ embeds: [new EmbedBuilder().setColor(embedColor).setTitle(runsTitle).setDescription(desc).setTimestamp()] });
+  1690→            if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1691→
+  1692→            if (result.milestoneResults) {
+  1693→              for (const milestone of result.milestoneResults) {
+  1694→                const mColor = milestone.type === 'century' ? COLORS.GOLD : COLORS.MILESTONE;
+  1695→                const mTitle = milestone.type === 'century' ? '👑 CENTURY!' : '🏆 HALF CENTURY!';
+  1696→                await channel.send({ embeds: [new EmbedBuilder().setColor(mColor).setTitle(mTitle).setDescription(`${milestone.message}\n**${batsmanName}** — ${milestone.runs} runs!`).setTimestamp()] });
+  1697→                if (milestone.gif) try { await channel.send(milestone.gif); } catch (e) {}
+  1698→              }
+  1699→            }
+  1700→          }
+  1701→
+  1702→          if (result.gameOver) {
+  1703→            await handleHCGameOver(hcGame, { nextPhase: 'game_over', winner: result.winner, loser: result.loser, isTie: false, commentary: result.gameOverCommentary, economyRewards: hcGame.calculateGameEconomy(result.winner) });
+  1704→            if (hcProfileManager) await hcProfileManager.saveMatchHistory(hcGame.getMatchHistory());
+  1705→            return;
+  1706→          }
+  1707→
+  1708→          if (result.inningsOver) {
+  1709→            await handleHCInningsEnd(hcGame, result);
+  1710→          } else {
+  1711→            hcGame.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1712→            // Send next ball buttons in channel
+  1713→            await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription('👇 Click a number button (1-6) below!').setTimestamp()], components: getNumberButtons(hcChannelId) });
+  1714→          }
+  1715→          return;
+  1716→        }
+  1717→
+  1718→        // bat/bowl choice from DM
+  1719→        if (hcGame.phase === HC_PHASE.TOSS_CHOICE && (msgContent === 'bat' || msgContent === 'bowl')) {
+  1720→          const result = hcGame.chooseBatBowl(message.author.id, msgContent);
+  1721→          if (!result.success) return message.reply(result.message);
+  1722→
+  1723→          const channel = hcGame.channel;
+  1724→          if (channel) {
+  1725→            const batName = client.users.cache.get(result.battingFirst)?.username || hcGame.botProfile?.name || 'Batsman';
+  1726→            const bowlName = client.users.cache.get(result.bowlingFirst)?.username || hcGame.botProfile?.name || 'Bowler';
+  1727→
+  1728→            const startEmbed = new EmbedBuilder()
+  1729→              .setColor(0x2ECC71)
+  1730→              .setTitle('🏏 Match Started!')
+  1731→              .setDescription(
+  1732→                `━━━━━━━━━━━━━━━━━━━\n` +
+  1733→                `┣ 🏏 **Batting:** ${batName}\n` +
+  1734→                `┣ 🎯 **Bowling:** ${bowlName}\n` +
+  1735→                `┣ 📏 **Format:** ${hcGame.maxOvers} over${hcGame.maxOvers > 1 ? 's' : ''}, ${hcGame.maxWickets} wicket${hcGame.maxWickets > 1 ? 's' : ''}\n` +
+  1736→                `┣ ⏱️ **Timer:** ${MATCH_TURN_TIMEOUT}s per ball\n` +
+  1737→                `┗ 👇 Click a number button below!`
+  1738→              )
+  1739→              .setFooter({ text: '🏏 Hitman Mode | No DM needed!' })
+  1740→              .setTimestamp();
+  1741→            await channel.send({ embeds: [startEmbed], components: getNumberButtons(hcChannelId) });
+  1742→
+  1743→            // Start match timer
+  1744→            hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1745→          }
+  1746→          return;
+  1747→        }
+  1748→      }
+  1749→    }
+  1750→
+  1751→    /* ── Mafia Night Actions (DM) ── */
+  1752→    if (msgContent.startsWith('w.')) {
+  1753→      const args = message.content.trim().split(/\s+/);
+  1754→      const cmd = args[0].toLowerCase();
+  1755→
+  1756→      if (cmd === 'w.nightkill' || cmd === 'w.nk' || cmd === 'w.save' || cmd === 'w.check') {
+  1757→        let foundGame = null;
+  1758→        for (const [, g] of activeGames) {
+  1759→          if (g.players.has(message.author.id) && g.state !== GAME_STATE.ENDED && g.mode === GAME_MODE.MAFIA) {
+  1760→            foundGame = g;
+  1761→            break;
+  1762→          }
+  1763→        }
+  1764→        if (!foundGame) return message.reply('🚫 You are not in any active Mafia game!');
+  1765→        if (foundGame.state !== GAME_STATE.NIGHT) return message.reply('🌙 Night actions only during the night!');
+  1766→        const targetNum = parseInt(args[1]);
+  1767→        if (isNaN(targetNum)) return message.reply(`❌ Use \`${cmd} <number>\` — Example: \`${cmd} 3\``);
+  1768→
+  1769→        let result;
+  1770→        if (cmd === 'w.nightkill' || cmd === 'w.nk') result = foundGame.wolfKill(message.author.id, targetNum);
+  1771→        else if (cmd === 'w.save') result = foundGame.doctorSave(message.author.id, targetNum);
+  1772→        else if (cmd === 'w.check') result = foundGame.seerCheck(message.author.id, targetNum);
+  1773→
+  1774→        if (result) {
+  1775→          await message.reply(result.message);
+  1776→          if (result.success) await tryAutoResolveMafiaNight(foundGame);
+  1777→        }
+  1778→      } else if (cmd === 'w.help') {
+  1779→        return message.reply(
+  1780→          'Werewolf — DM Commands:\n' +
+  1781→          '`w.nk <#>` — Mafia: choose victim\n' +
+  1782→          '`w.save <#>` — Doctor: protect someone\n' +
+  1783→          '`w.check <#>` — Cop: investigate someone'
+  1784→        );
+  1785→      }
+  1786→    }
+  1787→    return;
+  1788→  }
+  1789→
+  1790→  const msgContent = message.content.toLowerCase().trim();
+  1791→
+  1792→  /* ═══════════════════════════════════════════
+  1793→     🌐 Translation Command — !tr (reply to a message)
+  1794→     ═══════════════════════════════════════════ */
+  1795→  if (msgContent === '!tr' || msgContent.startsWith('!tr ')) {
+  1796→    let textToTranslate = message.content.slice(3).trim();
+  1797→    let repliedMsg = null;
+  1798→
+  1799→    // Priority: reply message > typed text
+  1800→    if (message.reference?.messageId) {
+  1801→      try {
+  1802→        repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
+  1803→        textToTranslate = repliedMsg.content;
+  1804→      } catch (e) {
+  1805→        // Couldn't fetch replied message, fall back to typed text
+  1806→      }
+  1807→    }
+  1808→
+  1809→    if (!textToTranslate) {
+  1810→      return message.reply('❌ Reply to a message with `!tr` to translate it!').catch(console.error);
+  1811→    }
+  1812→
+  1813→    try {
+  1814→      const result = await translate(textToTranslate, { to: 'en' });
+  1815→      const embed = new EmbedBuilder()
+  1816→        .setColor(0x00D4FF)
+  1817→        .setAuthor({ name: '🌐 Translation', iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+  1818→        .addFields(
+  1819→          { name: `📝 Original (${result.raw?.src || 'auto'})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
+  1820→          { name: '🇬🇧 English', value: result.text.length > 1024 ? result.text.slice(0, 1021) + '...' : result.text, inline: false }
+  1821→        )
+  1822→        .setFooter({ text: `Requested by ${message.author.username}` })
+  1823→        .setTimestamp();
+  1824→      return message.reply({ embeds: [embed] }).catch(console.error);
+  1825→    } catch (err) {
+  1826→      console.error('Translation error:', err);
+  1827→      return message.reply('❌ Translation failed! Try again later.').catch(console.error);
+  1828→    }
+  1829→  }
+  1830→
+  1831→  /* ═══════════════════════════════════════════
+  1832→     🔇 .shut — Auto-delete target user's messages (bot owner only)
+  1833→     🧛 .dracula — Unshut (stop auto-deleting)
+  1834→     🔍 .snipe — See last deleted message (bot owner only)
+  1835→     ═══════════════════════════════════════════ */
+  1836→
+  1837→  // .shut or !shut @user/<userID>
+  1838→  if (/^[.!]shut/.test(msgContent)) {
+  1839→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1840→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  1841→    }
+  1842→    let target = message.mentions.users.first();
+  1843→    if (!target) {
+  1844→      const userId = message.content.trim().split(/\s+/)[1];
+  1845→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1846→        target = await client.users.fetch(userId).catch(() => null);
+  1847→      }
+  1848→    }
+  1849→    if (!target) {
+  1850→      return message.reply('❌ Usage: `.shut @user` or `.shut <user_id>`').catch(() => {});
+  1851→    }
+  1852→    if (target.id === BOT_OWNER_ID || target.id === SNOW_ID) {
+  1853→      return message.reply("🧛 You can't shut them!").catch(() => {});
+  1854→    }
+  1855→    if (!client.shutUsers.has(message.guild.id)) client.shutUsers.set(message.guild.id, new Set());
+  1856→    client.shutUsers.get(message.guild.id).add(target.id);
+  1857→
+  1858→    // Delete the command message
+  1859→    await message.delete().catch(() => {});
+  1860→
+  1861→    try {
+  1862→      const dmChannel = await target.createDM();
+  1863→      await dmChannel.send(`🤫 You've been **shut** in **${message.guild.name}**! Your messages will be auto-deleted until you're unshut.`);
+  1864→    } catch (e) { /* DM blocked */ }
+  1865→    return;
+  1866→  }
+  1867→
+  1868→  // .dracula or !dracula @user/<userID> — unshut
+  1869→  if (/^[.!]dracula/.test(msgContent)) {
+  1870→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1871→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  1872→    }
+  1873→    let target = message.mentions.users.first();
+  1874→    if (!target) {
+  1875→      const userId = message.content.trim().split(/\s+/)[1];
+  1876→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1877→        target = await client.users.fetch(userId).catch(() => null);
+  1878→      }
+  1879→    }
+  1880→    if (!target) {
+  1881→      return message.reply('❌ Usage: `.dracula @user` or `.dracula <user_id>`').catch(() => {});
+  1882→    }
+  1883→    if (client.shutUsers.has(message.guild.id)) {
+  1884→      client.shutUsers.get(message.guild.id).delete(target.id);
+  1885→    }
+  1886→
+  1887→    // Delete the command message
+  1888→    await message.delete().catch(() => {});
+  1889→
+  1890→    try {
+  1891→      const dmChannel = await target.createDM();
+  1892→      await dmChannel.send(`🧛 You've been **unshut** in **${message.guild.name}**! You can talk freely again.`);
+  1893→    } catch (e) { /* DM blocked */ }
+  1894→    return;
+  1895→  }
+  1896→
+  1897→  // .snow or !snow @user/<userID> — unshut (same as .dracula)
+  1898→  if (/^[.!]snow/.test(msgContent)) {
+  1899→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1900→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  1901→    }
+  1902→    let target = message.mentions.users.first();
+  1903→    if (!target) {
+  1904→      const userId = message.content.trim().split(/\s+/)[1];
+  1905→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1906→        target = await client.users.fetch(userId).catch(() => null);
+  1907→      }
+  1908→    }
+  1909→    if (!target) {
+  1910→      return message.reply('❌ Usage: `.snow @user` or `.snow <user_id>`').catch(() => {});
+  1911→    }
+  1912→    if (client.shutUsers.has(message.guild.id)) {
+  1913→      client.shutUsers.get(message.guild.id).delete(target.id);
+  1914→    }
+  1915→
+  1916→    // Delete the command message
+  1917→    await message.delete().catch(() => {});
+  1918→
+  1919→    try {
+  1920→      const dmChannel = await target.createDM();
+  1921→      await dmChannel.send(`❄️ You've been **unshut** in **${message.guild.name}**! You can talk freely again.`);
+  1922→    } catch (e) { /* DM blocked */ }
+  1923→    return;
+  1924→  }
+  1925→
+  1926→  // .afkbreak or !afkbreak @user/<userID> — break someone's AFK
+  1927→  if (/^[.!]afkbreak/.test(msgContent)) {
+  1928→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1929→      return message.reply('🚫 Only the bot owner and Snow can use this!').catch(() => {});
+  1930→    }
+  1931→    let target = message.mentions.users.first();
+  1932→    if (!target) {
+  1933→      const userId = message.content.trim().split(/\s+/)[1];
+  1934→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1935→        target = await client.users.fetch(userId).catch(() => null);
+  1936→      }
+  1937→    }
+  1938→    if (!target) {
+  1939→      return message.reply('❌ Usage: `.afkbreak @user` or `.afkbreak <user_id>`').catch(() => {});
+  1940→    }
+  1941→
+  1942→    const { data: afkData, error: fetchErr } = await supabase
+  1943→      .from('afk_users')
+  1944→      .select('*')
+  1945→      .eq('user_id', target.id)
+  1946→      .eq('guild_id', message.guild.id)
+  1947→      .maybeSingle();
+  1948→
+  1949→    if (fetchErr) { console.error('AFK break fetch error:', fetchErr); return; }
+  1950→    if (!afkData) {
+  1951→      await message.delete().catch(() => {});
+  1952→      return message.reply(`✨ **${target.username}** is not AFK right now!`).catch(() => {});
+  1953→    }
+  1954→
+  1955→    // Protection check — only bot owner can break protected users
+  1956→    let isProtected = false;
+  1957→    if (client.afkBreakProtected) {
+  1958→      const guildProt = client.afkBreakProtected.get(message.guild.id);
+  1959→      if (guildProt && guildProt.has(target.id)) isProtected = true;
+  1960→    }
+  1961→    if (!isProtected && supabase) {
+  1962→      try {
+  1963→        const { data: protData } = await supabase
+  1964→          .from('afk_break_protected')
+  1965→          .select('user_id')
+  1966→          .eq('guild_id', message.guild.id)
+  1967→          .eq('user_id', target.id)
+  1968→          .maybeSingle();
+  1969→        if (protData) isProtected = true;
+  1970→      } catch (e) { console.error('Protection check error:', e.message); }
+  1971→    }
+  1972→    if (isProtected && message.author.id !== BOT_OWNER_ID) {
+  1973→      await message.delete().catch(() => {});
+  1974→      return message.reply(`🛡️ **${target.username}** is AFK break protected! Only the bot owner can break their AFK.`).catch(() => {});
+  1975→    }
+  1976→
+  1977→    // Remove AFK
+  1978→    const { error: delErr } = await supabase
+  1979→      .from('afk_users')
+  1980→      .delete()
+  1981→      .eq('user_id', target.id)
+  1982→      .eq('guild_id', message.guild.id);
+  1983→
+  1984→    if (delErr) {
+  1985→      console.error('AFK break delete error:', delErr);
+  1986→      return message.reply('💔 Something went wrong removing AFK status.').catch(() => {});
+  1987→    }
+  1988→
+  1989→    // Remove AFK role & nickname
+  1990→    const targetMember = await message.guild.members.fetch(target.id).catch(() => null);
+  1991→    if (targetMember) {
+  1992→      const afkRole = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+  1993→      if (afkRole && targetMember.roles.cache.has(afkRole.id)) {
+  1994→        try { await targetMember.roles.remove(afkRole, 'AFK broken via .afkbreak'); } catch (e) { /* skip */ }
+  1995→      }
+  1996→      const isTargetOwner = message.guild.ownerId === target.id;
+  1997→      const botCanNick = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+  1998→      if (!isTargetOwner && botCanNick) {
+  1999→        try {
+  2000→          const normalNick = getNormalNickname(targetMember.nickname, target.username);
+  2001→          await targetMember.setNickname(normalNick, 'AFK broken — nickname restored');
+  2002→        } catch (e) { /* skip */ }
+  2003→      }
+  2004→    }
+  2005→
+  2006→    await message.delete().catch(() => {});
+  2007→
+  2008→    const away = timeSince(afkData.afk_time);
+  2009→    const breakEmbed = new EmbedBuilder()
+  2010→      .setColor(0xFF69B4)
+  2011→      .setAuthor({ name: `${target.username}'s AFK was broken!`, iconURL: target.displayAvatarURL({ dynamic: true }) })
+  2012→      .setTitle('🔨 AFK Broken!')
+  2013→      .setDescription(`**${message.author.username}** broke **${target.username}**'s AFK!\n📝 \`${afkData.reason}\` • ⏱️ \`${away}\``)
+  2014→      .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 256 }))
+  2015→      .setTimestamp();
+  2016→
+  2017→    await message.channel.send({ embeds: [breakEmbed] });
+  2018→
+  2019→    // DM the target
+  2020→    try {
+  2021→      const dmEmbed = new EmbedBuilder()
+  2022→        .setColor(0xFF69B4)
+  2023→        .setTitle('🔨 Your AFK Was Broken!')
+  2024→        .setDescription(
+  2025→          `**${message.author.username}** broke your AFK in **${message.guild.name}**!\n` +
+  2026→          `📝 \`${afkData.reason}\` • ⏱️ \`${away}\``
+  2027→        )
+  2028→        .setTimestamp();
+  2029→      await target.send({ embeds: [dmEmbed] });
+  2030→    } catch (e) { /* DM blocked */ }
+  2031→
+  2032→    return;
+  2033→  }
+  2034→
+  2035→  // .snipe or !snipe — see last deleted message
+  2036→  if (/^[.!]snipe$/.test(msgContent)) {
+  2037→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  2038→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  2039→    }
+  2040→    const channelSnipes = client.snipes.get(message.channel.id);
+  2041→    if (!channelSnipes || channelSnipes.length === 0) {
+  2042→      await message.delete().catch(() => {});
+  2043→      return message.channel.send('❌ No recently deleted messages in this channel!').catch(() => {});
+  2044→    }
+  2045→    const snipe = channelSnipes[0];
+  2046→    const embed = new EmbedBuilder()
+  2047→      .setColor(0xFF69B4)
+  2048→      .setAuthor({ name: `${snipe.author.username}`, iconURL: snipe.author.displayAvatarURL })
+  2049→      .setDescription(snipe.content || '*No text content*')
+  2050→      .setFooter({ text: `Deleted in #${message.channel.name}` })
+  2051→      .setTimestamp(snipe.timestamp);
+  2052→    if (snipe.attachments && snipe.attachments.length > 0) {
+  2053→      embed.addFields({ name: '📎 Attachments', value: snipe.attachments.map(a => `[${a.name}](${a.url})`).join(', ') });
+  2054→    }
+  2055→    await message.delete().catch(() => {});
+  2056→    return message.channel.send({ embeds: [embed] }).catch(console.error);
+  2057→  }
+  2058→
+  2059→  // .snipelist or !snipelist — see all deleted messages in channel (paginated)
+  2060→  if (/^[.!]snipelist$/.test(msgContent)) {
+  2061→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  2062→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  2063→    }
+  2064→    const channelSnipes = client.snipes.get(message.channel.id);
+  2065→    if (!channelSnipes || channelSnipes.length === 0) {
+  2066→      await message.delete().catch(() => {});
+  2067→      return message.channel.send('❌ No recently deleted messages in this channel!').catch(() => {});
+  2068→    }
+  2069→
+  2070→    const perPage = 5;
+  2071→    const totalPages = Math.ceil(channelSnipes.length / perPage);
+  2072→    let currentPage = 0;
+  2073→
+  2074→    function getSnipeListEmbed(page) {
+  2075→      const start = page * perPage;
+  2076→      const pageSnipes = channelSnipes.slice(start, start + perPage);
+  2077→      const list = pageSnipes.map((s, i) => {
+  2078→        const num = start + i + 1;
+  2079→        const timestamp = Math.floor(new Date(s.timestamp).getTime() / 1000);
+  2080→        const preview = s.content ? (s.content.length > 80 ? s.content.slice(0, 80) + '...' : s.content) : '*No text*';
+  2081→        const att = s.attachments && s.attachments.length > 0 ? ` 📎${s.attachments.length}` : '';
+  2082→        return `**${num}.** <@${s.author.id}> — ${preview}${att}\n   ⏰ <t:${timestamp}:R>`;
+  2083→      }).join('\n\n');
+  2084→
+  2085→      return new EmbedBuilder()
+  2086→        .setColor(0xFF69B4)
+  2087→        .setTitle('🔍 Snipe List')
+  2088→        .setDescription(`**${channelSnipes.length}** deleted message(s) in <#${message.channel.id}>:\n\n${list}`)
+  2089→        .setFooter({ text: `Page ${page + 1}/${totalPages} • 🗑️ Abigail Snipe` })
+  2090→        .setTimestamp();
+  2091→    }
+  2092→
+  2093→    function getSnipeButtons(page) {
+  2094→      const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+  2095→      return new ActionRowBuilder().addComponents(
+  2096→        new ButtonBuilder().setCustomId('snipe_prev').setEmoji('◀️').setStyle(ButtonStyle.Primary).setDisabled(page === 0),
+  2097→        new ButtonBuilder().setCustomId('snipe_next').setEmoji('▶️').setStyle(ButtonStyle.Primary).setDisabled(page === totalPages - 1),
+  2098→      );
+  2099→    }
+  2100→
+  2101→    await message.delete().catch(() => {});
+  2102→
+  2103→    if (totalPages === 1) {
+  2104→      return message.channel.send({ embeds: [getSnipeListEmbed(0)] }).catch(console.error);
+  2105→    }
+  2106→
+  2107→    const reply = await message.channel.send({
+  2108→      embeds: [getSnipeListEmbed(0)],
+  2109→      components: [getSnipeButtons(0)],
+  2110→    }).catch(console.error);
+  2111→
+  2112→    if (!reply) return;
+  2113→
+  2114→    const { ComponentType } = require('discord.js');
+  2115→    const collector = reply.createMessageComponentCollector({
+  2116→      componentType: ComponentType.Button,
+  2117→      time: 60_000,
+  2118→    });
+  2119→
+  2120→    collector.on('collect', async (btn) => {
+  2121→      if (btn.user.id !== message.author.id) {
+  2122→        return btn.reply({ content: '🚫 Not your list!', flags: MessageFlags.Ephemeral });
+  2123→      }
+  2124→      if (btn.customId === 'snipe_prev') currentPage = Math.max(0, currentPage - 1);
+  2125→      else if (btn.customId === 'snipe_next') currentPage = Math.min(totalPages - 1, currentPage + 1);
+  2126→
+  2127→      await btn.update({
+  2128→        embeds: [getSnipeListEmbed(currentPage)],
+  2129→        components: [getSnipeButtons(currentPage)],
+  2130→      });
+  2131→    });
+  2132→
+  2133→    collector.on('end', async () => {
+  2134→      try { await reply.edit({ components: [] }); } catch (e) {}
+  2135→    });
+  2136→    return;
+  2137→  }
+  2138→
+  2139→  /* ── Shut auto-delete check ── */
+  2140→  if (client.shutUsers.has(message.guild.id)) {
+  2141→    const shutSet = client.shutUsers.get(message.guild.id);
+  2142→    if (shutSet.has(message.author.id)) {
+  2143→      await message.delete().catch(() => {});
+  2144→      return;
+  2145→    }
+  2146→  }
+  2147→
+  2148→  /* ═══════════════════════════════════════════
+  2149→     💋 Anime GIF Interaction Commands
+  2150→     .slap .kiss .kick .angry .kill .pat .bow
+  2151→     Using nekos.best API — real anime GIFs
+  2152→     ═══════════════════════════════════════════ */
+  2153→  const GIF_COMMANDS = {
+  2154→    '.slap':  { emoji: '👋', text: 'slapped',    color: 0xFF4444, api: 'slap' },
+  2155→    '.kiss':  { emoji: '💋', text: 'kissed',      color: 0xFF69B4, api: 'kiss' },
+  2156→    '.kick':  { emoji: '👢', text: 'kicked',      color: 0xFF8800, api: 'kick' },
+  2157→    '.angry': { emoji: '😡', text: 'is angry at', color: 0xFF2222, api: 'angry' },
+  2158→    '.kill':  { emoji: '💀', text: 'killed',      color: 0x8B0000, api: 'shoot' },
+  2159→    '.pat':   { emoji: '🥺', text: 'patted',       color: 0xFFB6C1, api: 'pat' },
+  2160→    '.bow':   { emoji: '🙇', text: 'bowed to',     color: 0x9B59B6, api: 'salute' },
+  2161→  };
+  2162→
+  2163→  const gifCmd = Object.keys(GIF_COMMANDS).find(cmd => msgContent.startsWith(cmd));
+  2164→  if (gifCmd) {
+  2165→    const cfg = GIF_COMMANDS[gifCmd];
+  2166→    const target = message.mentions.users.first();
+  2167→    const noTargetText = gifCmd === '.angry' ? 'is angry!' : gifCmd === '.kill' ? 'killed the air!' : gifCmd === '.pat' ? 'patted the air!' : gifCmd === '.bow' ? 'bowed!' : `${cfg.text} themselves!`;
+  2168→
+  2169→    try {
+  2170→      const https = require('https');
+  2171→      const gifUrl = await new Promise((resolve, reject) => {
+  2172→        const apiEp = cfg.api;
+  2173→        https.get(`https://nekos.best/api/v2/${apiEp}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
+  2174→          let data = '';
+  2175→          res.on('data', chunk => data += chunk);
+  2176→          res.on('end', () => {
+  2177→            try {
+  2178→              const parsed = JSON.parse(data);
+  2179→              resolve(parsed.results?.[0]?.url || parsed.url);
+  2180→            } catch (e) { reject(e); }
+  2181→          });
+  2182→        }).on('error', reject);
+  2183→      });
+  2184→
+  2185→      const embed = new EmbedBuilder()
+  2186→        .setColor(cfg.color)
+  2187→        .setDescription(target
+  2188→          ? `${cfg.emoji} **${message.member.displayName}** ${cfg.text} **${target.displayName}**!`
+  2189→          : `${cfg.emoji} **${message.member.displayName}** ${noTargetText}`)
+  2190→        .setImage(gifUrl)
+  2191→        .setFooter({ text: `Abigail 💕` })
+  2192→        .setTimestamp();
+  2193→
+  2194→      return message.channel.send({ embeds: [embed] });
+  2195→    } catch (err) {
+  2196→      console.error('GIF API error:', err.message);
+  2197→      return message.reply(target
+  2198→        ? `${cfg.emoji} **${message.member.displayName}** ${cfg.text} **${target.displayName}**!`
+  2199→        : `${cfg.emoji} **${message.member.displayName}** ${noTargetText}`).catch(() => {});
+  2200→    }
+  2201→  }
+  2202→
+  2203→  /* ═══════════════════════════════════════════
+  2204→     🐺 Werewolf Game Commands — Wolfia Style
+  2205→     ═══════════════════════════════════════════ */
+  2206→
+  2207→  if (msgContent.startsWith('w.')) {
+  2208→    const args = message.content.trim().split(/\s+/);
+  2209→    const cmd = args[0].toLowerCase();
+  2210→
+  2211→    /* ── w.help ── */
+  2212→    if (cmd === 'w.help') {
+  2213→      const helpEmbed = new EmbedBuilder()
+  2214→        .setColor(0xFF69B4)
+  2215→        .setTitle('Werewolf — Help')
+  2216→        .setDescription('Social deduction game with two modes!')
+  2217→        .addFields(
+  2218→          { name: 'Starting', value: '`w.in` — Sign up\n`w.out` — Drop\n`w.setup` — Configure\n`w.start` — Start (host)\n`w.status` — Game status', inline: false },
+  2219→          { name: 'Popcorn Mode', value: '`w.shoot <number>` — Shoot someone\nShoot opposite team = target dies\nShoot same team = YOU die, gun passes', inline: false },
+  2220→          { name: 'Mafia Mode', value: '`w.vote <number>` — Vote to lynch\n`w.unvote` — Remove vote\n`w.votecount` — See votes\n`w.nk <number>` — Mafia kill (DM)\n`w.save <number>` — Doctor save (DM)\n`w.check <number>` — Cop check (DM)', inline: false },
+  2221→          { name: 'Setup', value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer\n`w.setup shoottimer <10-120>` — Shoot timer (Popcorn)', inline: false },
+  2222→          { name: 'Win Conditions', value: 'Village wins = all wolves dead\nWolves win = wolves >= villagers', inline: false },
+  2223→        )
+  2224→        .setFooter({ text: 'Sweetheart Bot — Werewolf' })
+  2225→        .setTimestamp();
+  2226→      return message.reply({ embeds: [helpEmbed] });
+  2227→    }
+  2228→
+  2229→    /* ── w.in ── */
+  2230→    if (cmd === 'w.in') {
+  2231→      let game = activeGames.get(message.channel.id);
+  2232→      if (!game || game.state === GAME_STATE.ENDED) {
+  2233→        game = new WerewolfGame(message.guild.id, message.channel.id, message.author.id);
+  2234→        game.channel = message.channel;
+  2235→        activeGames.set(message.channel.id, game);
+  2236→      }
+  2237→      const result = game.join(message.author);
+  2238→      const isHost = game.hostId === message.author.id;
+  2239→
+  2240→      // Wolfia-style setup embed with checkboxes
+  2241→      const modeCheck = game.mode === GAME_MODE.POPCORN;
+  2242→      const setupStr = [
+  2243→        `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia`,
+  2244→        `**Day length**    ${game.dayLength} minutes`,
+  2245→        `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}`,
+  2246→        `**Inned**         (${game.players.size})`,
+  2247→      ].join('\n');
+  2248→
+  2249→      const playerList = [...game.players.values()].map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+  2250→
+  2251→      const embed = new EmbedBuilder()
+  2252→        .setColor(result.success ? 0x2ECC71 : 0xE74C3C)
+  2253→        .setTitle(result.success ? 'Setup' : 'Error')
+  2254→        .setDescription(
+  2255→          result.success
+  2256→            ? `${setupStr}\n\n**Players:** ${playerList}${isHost ? '\n\n**You are the HOST!** Use `w.start` to begin.' : ''}`
+  2257→            : result.message
+  2258→        )
+  2259→        .setFooter({ text: `Host: <@${game.hostId}>` })
+  2260→        .setTimestamp();
+  2261→      return message.reply({ embeds: [embed] });
+  2262→    }
+  2263→
+  2264→    /* ── w.out ── */
+  2265→    if (cmd === 'w.out') {
+  2266→      const game = activeGames.get(message.channel.id);
+  2267→      if (!game) {
+  2268→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel!').setTimestamp()] });
+  2269→      }
+  2270→      const targetUser = message.mentions.users.first() || message.author;
+  2271→      const isHost = message.author.id === game.hostId;
+  2272→      if (targetUser.id !== message.author.id && !isHost) {
+  2273→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the host can remove other players!').setTimestamp()] });
+  2274→      }
+  2275→      const result = game.leave(targetUser.id);
+  2276→      if (targetUser.id === game.hostId && game.state === GAME_STATE.WAITING && game.players.size > 0) {
+  2277→        game.hostId = game.players.keys().next().value;
+  2278→      }
+  2279→      const embed = new EmbedBuilder()
+  2280→        .setColor(result.success ? 0x2ECC71 : 0xE74C3C)
+  2281→        .setDescription(result.message)
+  2282→        .setTimestamp();
+  2283→      return message.reply({ embeds: [embed] });
+  2284→    }
+  2285→
+  2286→    /* ── w.setup ── */
+  2287→    if (cmd === 'w.setup') {
+  2288→      let game = activeGames.get(message.channel.id);
+  2289→      if (!game) {
+  2290→        game = new WerewolfGame(message.guild.id, message.channel.id, message.author.id);
+  2291→        game.channel = message.channel;
+  2292→        activeGames.set(message.channel.id, game);
+  2293→      }
+  2294→      if (message.author.id !== game.hostId) {
+  2295→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the host can change settings!').setTimestamp()] });
+  2296→      }
+  2297→
+  2298→      const setting = args[1]?.toLowerCase();
+  2299→      const value = args[2]?.toLowerCase();
+  2300→
+  2301→      if (!setting) {
+  2302→        // Wolfia-style setup embed
+  2303→        const modeCheck = game.mode === GAME_MODE.POPCORN;
+  2304→        const setupStr = [
+  2305→          `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia`,
+  2306→          `**Day length**    ${game.dayLength} minutes`,
+  2307→          `**Shoot timer**   ${game.shootTimerLength}s ${modeCheck ? '(Popcorn)' : '(N/A)'}`,
+  2308→          `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}`,
+  2309→          `**Inned**         (${game.players.size})`,
+  2310→        ].join('\n');
+  2311→
+  2312→        const setupEmbed = new EmbedBuilder()
+  2313→          .setColor(0x3498DB)
+  2314→          .setTitle(`Setup for channel #${message.channel.name}`)
+  2315→          .setDescription(setupStr)
+  2316→          .addFields({
+  2317→            name: 'Commands',
+  2318→            value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer\n`w.setup shoottimer <10-120>` — Shoot timer (Popcorn)',
+  2319→            inline: false,
+  2320→          })
+  2321→          .setTimestamp();
+  2322→        return message.reply({ embeds: [setupEmbed] });
+  2323→      }
+  2324→
+  2325→      let result;
+  2326→      if (setting === 'mode') {
+  2327→        result = game.setMode(value);
+  2328→      } else if (setting === 'daylength') {
+  2329→        result = game.setDayLength(value);
+  2330→      } else if (setting === 'shoottimer') {
+  2331→        result = game.setShootTimer(value);
+  2332→      } else {
+  2333→        result = { success: false, message: '🚫 Unknown setting! Use `mode`, `daylength`, or `shoottimer`' };
+  2334→      }
+  2335→
+  2336→      return message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] });
+  2337→    }
+  2338→
+  2339→    /* ── w.start ── */
+  2340→    if (cmd === 'w.start') {
+  2341→      let game = activeGames.get(message.channel.id);
+  2342→      if (!game) {
+  2343→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel! Use `w.in` first.').setTimestamp()] });
+  2344→      }
+  2345→      if (message.author.id !== game.hostId) {
+  2346→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the **host** can start the game!').setTimestamp()] });
+  2347→      }
+  2348→      if (game.started) {
+  2349→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Game already started!').setTimestamp()] });
+  2350→      }
+  2351→      const result = game.start();
+  2352→      if (!result.success) {
+  2353→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  2354→      }
+  2355→
+  2356→      const alivePlayers = game.getAlivePlayers();
+  2357→      const playerListStr = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+  2358→
+  2359→      if (result.mode === GAME_MODE.POPCORN) {
+  2360→        const gunHolder = game.players.get(game.gunHolder);
+  2361→        const startEmbed = new EmbedBuilder()
+  2362→          .setColor(0xFF69B4)
+  2363→          .setTitle('Popcorn — Day 1')
+  2364→          .setDescription(
+  2365→            `**Game**          Popcorn\n**Day**           1\n**Living**        ${alivePlayers.length} players\n**Wolves**        ${result.wolfCount}\n**Gun holder**    **${gunHolder.number}.** ${gunHolder.user.username}\n\nUse \`w.shoot <number>\` to shoot!\nHit opposite team = target dies\nHit same team = YOU die, gun passes\n\n⏱️ **${game.shootTimerLength}s** to shoot or you're eliminated!\n\nCheck your DMs for your role!`
+  2366→          )
+  2367→          .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerListStr, inline: false })
+  2368→          .setFooter({ text: `Popcorn Mode — ${game.shootTimerLength}s shoot timer!` })
+  2369→          .setTimestamp();
+  2370→        await message.reply({ embeds: [startEmbed] });
+  2371→
+  2372→        // Start shoot timer for gun holder
+  2373→        await startPopcornShootTimer(game);
+  2374→      } else {
+  2375→        const startEmbed = new EmbedBuilder()
+  2376→          .setColor(0xFF69B4)
+  2377→          .setTitle('Mafia — Night 1')
+  2378→          .setDescription(
+  2379→            `**Game**          Mafia\n**Day**           1\n**Living**        ${alivePlayers.length} players\n**Mafia**         ${result.wolfCount}\n\nNight 1 begins now...\nCheck your DMs for your role!\nNight actions: ${NIGHT_TIMER}s`
+  2380→          )
+  2381→          .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerListStr, inline: false })
+  2382→          .setFooter({ text: 'Mafia Mode — Deception begins!' })
+  2383→          .setTimestamp();
+  2384→        await message.reply({ embeds: [startEmbed] });
+  2385→      }
+  2386→
+  2387→      // DM each player their role
+  2388→      for (const [id, player] of game.players) {
+  2389→        try {
+  2390→          let roleMsg = '';
+  2391→          if (player.role === ROLE.WOLF) {
+  2392→            const otherWolves = game.getAliveWolves().filter(w => w.user.id !== id);
+  2393→            if (game.mode === GAME_MODE.POPCORN) {
+  2394→              const hasGun = game.gunHolder === id;
+  2395→              roleMsg = `You are a **WOLF**!\n\nKeep your identity secret.\nFind and eliminate villagers.${otherWolves.length > 0 ? `\n\nWolf teammates: ${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('  ·  ')}` : '\n\nYou are the only wolf!'}${hasGun ? '\n\n**YOU HAVE THE GUN!** Use `w.shoot <number>` to shoot!' : ''}`;
+  2396→            } else {
+  2397→              roleMsg = `You are **MAFIA**!\n\nKill at night with \`w.nk <number>\`\nKeep your identity secret.${otherWolves.length > 0 ? `\n\nMafia teammates: ${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('  ·  ')}` : '\n\nYou are the only mafia!'}\n\nUse \`w.nk <number>\` in DM at night.`;
+  2398→            }
+  2399→          } else if (player.role === ROLE.DOCTOR) {
+  2400→            const aliveList = game.getAlivePlayers().map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+  2401→            roleMsg = `You are the **DOCTOR**!\n\nSave one person each night.\nDM: \`w.save <number>\`\nCan't save same person 2 nights in a row.\n\nAlive players:\n${aliveList}`;
+  2402→          } else if (player.role === ROLE.SEER) {
+  2403→            const checkList = game.getAlivePlayers().filter(p => p.user.id !== id).map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+  2404→            if (game.mode === GAME_MODE.POPCORN) {
+  2405→              roleMsg = `You are the **SEER**!\n\nYour instinct tells you who is suspicious.\nKeep your identity secret.\nShare info carefully — wolves may target you!`;
+  2406→            } else {
+  2407→              roleMsg = `You are the **COP**!\n\nInvestigate one player each night.\nDM: \`w.check <number>\`\n\nOther alive players:\n${checkList}`;
+  2408→            }
+  2409→          } else {
+  2410→            if (game.mode === GAME_MODE.POPCORN) {
+  2411→              roleMsg = `You are a **VILLAGER**!\n\nSurvive and find the wolves.\nPay attention to who shoots who.\nHelp identify the wolves!`;
+  2412→            } else {
+  2413→              roleMsg = `You are a **VILLAGER**!\n\nSurvive and find the mafia.\nVote during the day: \`w.vote <number>\`\nSleep at night...`;
+  2414→            }
+  2415→          }
+  2416→          await player.user.send({
+  2417→            embeds: [new EmbedBuilder()
+  2418→              .setColor(ROLE_COLORS[player.role] || 0xFF69B4)
+  2419→              .setTitle(`Your Role — ${player.role}`)
+  2420→              .setDescription(roleMsg)
+  2421→              .setFooter({ text: "Don't share your role!" })
+  2422→              .setTimestamp()]
+  2423→          });
+  2424→        } catch (err) {
+  2425→          console.error(`Could not DM ${player.user.username}:`, err.message);
+  2426→          await message.channel.send(`Could not DM <@${id}> — tell them to enable DMs!`);
+  2427→        }
+  2428→      }
+  2429→
+  2430→      // If Mafia mode, start night phase
+  2431→      if (result.mode === GAME_MODE.MAFIA) {
+  2432→        await startMafiaNight(game);
+  2433→      }
+  2434→      return;
+  2435→    }
+  2436→
+  2437→    /* ── w.shoot (Popcorn mode) ── */
+  2438→    if (cmd === 'w.shoot' || cmd === 'w.s') {
+  2439→      const game = activeGames.get(message.channel.id);
+  2440→      if (!game || game.state === GAME_STATE.ENDED) {
+  2441→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active game! Use `w.in` then `w.start`').setTimestamp()] });
+  2442→      }
+  2443→      if (game.mode !== GAME_MODE.POPCORN) {
+  2444→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('`w.shoot` is for Popcorn mode only! Use `w.vote` in Mafia.').setTimestamp()] });
+  2445→      }
+  2446→      const targetNum = parseInt(args[1]);
+  2447→      if (isNaN(targetNum)) {
+  2448→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
+  2449→      }
+  2450→      const result = game.shoot(message.author.id, targetNum);
+  2451→      if (!result.success) {
+  2452→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  2453→      }
+  2454→
+  2455→      // Clear shoot timer — gun holder shot in time
+  2456→      if (game.shootTimer) { clearTimeout(game.shootTimer); game.shootTimer = null; }
+  2457→      if (game._shootWarningTimer) { clearTimeout(game._shootWarningTimer); game._shootWarningTimer = null; }
+  2458→
+  2459→      // Shoot result embed — Wolfia style with updated game state
+  2460→      const alivePlayers = game.getAlivePlayers();
+  2461→      const livingStr = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+  2462→      const wolvesStr = game.getAliveWolves().map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+  2463→      const gunHolder = game.players.get(game.gunHolder);
+  2464→
+  2465→      const shootEmbed = new EmbedBuilder()
+  2466→        .setColor(result.shooterDies ? 0xE74C3C : 0xFFD700)
+  2467→        .setTitle(result.shooterDies ? 'Misfire!' : 'Hit!')
+  2468→        .setDescription(
+  2469→          `${result.message}\n\n**Game**          Popcorn\n**Day**           ${game.round}\n**Living**        ${alivePlayers.length}\n**Gun holder**    **${gunHolder?.number || '?'}.** ${gunHolder?.user.username || 'None'}`
+  2470→        )
+  2471→        .addFields(
+  2472→          { name: `Living Players (${alivePlayers.length})`, value: livingStr || 'None', inline: false },
+  2473→        )
+  2474→        .setTimestamp();
+  2475→      await message.reply({ embeds: [shootEmbed] });
+  2476→
+  2477→      // Check win
+  2478→      const winCheck = game.checkWin();
+  2479→      if (winCheck) {
+  2480→        const winEmbed = new EmbedBuilder()
+  2481→          .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
+  2482→          .setTitle(winCheck.winner === 'wolves' ? 'Wolves Win!' : 'Village Wins!')
+  2483→          .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+  2484→          .setFooter({ text: 'Game Over — Thanks for playing!' })
+  2485→          .setTimestamp();
+  2486→        await message.channel.send({ embeds: [winEmbed] });
+  2487→        activeGames.delete(message.channel.id);
+  2488→      } else if (result.shooterDies && gunHolder) {
+  2489→        // Gun passed to target — start new shoot timer
+  2490→        const gunEmbed = new EmbedBuilder()
+  2491→          .setColor(0xFFD700)
+  2492→          .setTitle('Gun Passed!')
+  2493→          .setDescription(`The gun passes to **${gunHolder.user.username}**!\n\nUse \`w.shoot <number>\` to shoot!\n⏱️ **${game.shootTimerLength}s** on the clock!`)
+  2494→          .setTimestamp();
+  2495→        await message.channel.send({ embeds: [gunEmbed] });
+  2496→        await startPopcornShootTimer(game);
+  2497→      } else {
+  2498→        // Shooter keeps gun — restart shoot timer
+  2499→        await startPopcornShootTimer(game);
+  2500→      }
+  2501→      return;
+  2502→    }
+  2503→
+  2504→    /* ── w.vote (Mafia mode) ── */
+  2505→    if (cmd === 'w.vote' || cmd === 'w.v') {
+  2506→      const game = activeGames.get(message.channel.id);
+  2507→      if (!game || game.state === GAME_STATE.ENDED) {
+  2508→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active game!').setTimestamp()] });
+  2509→      }
+  2510→      if (game.mode !== GAME_MODE.MAFIA) {
+  2511→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('`w.vote` is for Mafia mode only! Use `w.shoot` in Popcorn.').setTimestamp()] });
+  2512→      }
+  2513→      if (game.state !== GAME_STATE.DAY) {
+  2514→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('You can only vote during the day!').setTimestamp()] });
+  2515→      }
+  2516→      const targetNum = parseInt(args[1]);
+  2517→      if (isNaN(targetNum)) {
+  2518→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Use `w.vote <number>` — Example: `w.vote 3`').setTimestamp()] });
+  2519→      }
+  2520→      const target = game.getPlayerByNumber(targetNum);
+  2521→      if (!target) {
+  2522→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`Player #${targetNum} not found or dead!`).setTimestamp()] });
+  2523→      }
+  2524→      const result = game.vote(message.author.id, target.user.id);
+  2525→      if (result.success) {
+  2526→        const voteCount = game.votes.size;
+  2527→        const aliveCount = game.getAlivePlayers().length;
+  2528→        await message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setDescription(`${result.message}\n**${voteCount}/${aliveCount}** votes cast`).setTimestamp()] });
+  2529→        if (voteCount >= aliveCount) await resolveMafiaVote(game);
+  2530→      } else {
+  2531→        await message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  2532→      }
+  2533→      return;
+  2534→    }
+  2535→
+  2536→    /* ── w.unvote ── */
+  2537→    if (cmd === 'w.unvote' || cmd === 'w.u') {
+  2538→      const game = activeGames.get(message.channel.id);
+  2539→      if (!game || game.mode !== GAME_MODE.MAFIA) {
+  2540→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active Mafia game!').setTimestamp()] });
+  2541→      }
+  2542→      const result = game.unvote(message.author.id);
+  2543→      return message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] });
+  2544→    }
+  2545→
+  2546→    /* ── w.votecount ── */
+  2547→    if (cmd === 'w.votecount' || cmd === 'w.vc') {
+  2548→      const game = activeGames.get(message.channel.id);
+  2549→      if (!game || game.mode !== GAME_MODE.MAFIA) {
+  2550→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active Mafia game!').setTimestamp()] });
+  2551→      }
+  2552→      const vc = game.getVoteCountString();
+  2553→      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setTitle('Vote Count').setDescription(vc).setTimestamp()] });
+  2554→    }
+  2555→
+  2556→    /* ── w.status ── */
+  2557→    if (cmd === 'w.status' || cmd === 'w.st') {
+  2558→      const game = activeGames.get(message.channel.id);
+  2559→      if (!game) {
+  2560→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel! Use `w.in` to sign up.').setTimestamp()] });
+  2561→      }
+  2562→
+  2563→      const alivePlayers = game.getAlivePlayers();
+  2564→      const livingStr = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+  2565→
+  2566→      let statusDesc = '';
+  2567→      if (game.started) {
+  2568→        statusDesc = `**Game**          ${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'}\n`;
+  2569→        statusDesc += `**Day**           ${game.round}\n`;
+  2570→        statusDesc += `**Phase**         ${game.state === GAME_STATE.NIGHT ? 'Night' : game.state === GAME_STATE.DAY ? 'Day' : 'Ended'}\n`;
+  2571→        statusDesc += `**Living**        ${alivePlayers.length}\n`;
+  2572→        if (game.mode === GAME_MODE.POPCORN) {
+  2573→          const gunHolder = game.players.get(game.gunHolder);
+  2574→          if (gunHolder) statusDesc += `**Gun holder**    **${gunHolder.number}.** ${gunHolder.user.username}\n`;
+  2575→          statusDesc += `**Shoot timer**   ${game.shootTimerLength}s\n`;
+  2576→        }
+  2577→        if (game.mode === GAME_MODE.MAFIA && game.state === GAME_STATE.DAY) {
+  2578→          statusDesc += `**Votes**         ${game.votes.size}/${alivePlayers.length}\n`;
+  2579→        }
+  2580→      } else {
+  2581→        const modeCheck = game.mode === GAME_MODE.POPCORN;
+  2582→        statusDesc = `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia\n`;
+  2583→        statusDesc += `**Day length**    ${game.dayLength} minutes\n`;
+  2584→        statusDesc += `**Shoot timer**   ${game.shootTimerLength}s ${modeCheck ? '(Popcorn)' : '(N/A)'}\n`;
+  2585→        statusDesc += `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}\n`;
+  2586→        statusDesc += `**Inned**         (${game.players.size})\n`;
+  2587→      }
+  2588→
+  2589→      const deadList = game.getDeadListString();
+  2590→
+  2591→      const statusEmbed = new EmbedBuilder()
+  2592→        .setColor(0x3498DB)
+  2593→        .setTitle(game.started ? `${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'} — Status` : `Setup for channel #${message.channel.name}`)
+  2594→        .setDescription(statusDesc);
+  2595→      if (game.started) {
+  2596→        statusEmbed.addFields({ name: `Living (${alivePlayers.length})`, value: livingStr || 'None', inline: false });
+  2597→        if (deadList) statusEmbed.addFields({ name: 'Eliminated', value: deadList, inline: false });
+  2598→      } else {
+  2599→        const playerListStr = [...game.players.values()].map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+  2600→        statusEmbed.addFields({ name: `Signed Up (${game.players.size})`, value: playerListStr || 'None', inline: false });
+  2601→      }
+  2602→      statusEmbed.setFooter({ text: `Host: <@${game.hostId}>` }).setTimestamp();
+  2603→      return message.reply({ embeds: [statusEmbed] });
+  2604→    }
+  2605→
+  2606→    /* ── w.players ── */
+  2607→    if (cmd === 'w.players') {
+  2608→      const game = activeGames.get(message.channel.id);
+  2609→      if (!game) {
+  2610→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel!').setTimestamp()] });
+  2611→      }
+  2612→      const aliveList = game.getPlayerListString();
+  2613→      const deadList = game.getDeadListString();
+  2614→      const embed = new EmbedBuilder().setColor(0xFF69B4).setTitle('Players');
+  2615→      if (game.started) {
+  2616→        embed.addFields({ name: `Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
+  2617→        if (deadList) embed.addFields({ name: 'Eliminated', value: deadList, inline: false });
+  2618→      } else {
+  2619→        embed.addFields({ name: `Signed Up (${game.players.size})`, value: aliveList || 'None', inline: false });
+  2620→      }
+  2621→      embed.setTimestamp();
+  2622→      return message.reply({ embeds: [embed] });
+  2623→    }
+  2624→
+  2625→    /* ── w.end ── */
+  2626→    if (cmd === 'w.end') {
+  2627→      const game = activeGames.get(message.channel.id);
+  2628→      if (!game) {
+  2629→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game to end!').setTimestamp()] });
+  2630→      }
+  2631→      if (message.author.id !== game.hostId) {
+  2632→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the **host** can end the game!').setTimestamp()] });
+  2633→      }
+  2634→      game.end();
+  2635→      const playerList = game.getFullPlayerListString();
+  2636→      activeGames.delete(message.channel.id);
+  2637→      const embed = new EmbedBuilder()
+  2638→        .setColor(0xFF69B4)
+  2639→        .setTitle('Game Ended!')
+  2640→        .setDescription(`The game was ended by the host.\n\n${playerList}`)
+  2641→        .setTimestamp();
+  2642→      return message.reply({ embeds: [embed] });
+  2643→    }
+  2644→
+  2645→    /* ── Handle w.nightkill/w.nk/w.save/w.check typed in channel (Mafia mode) ── */
+  2646→    if (msgContent.startsWith('w.nightkill ') || msgContent.startsWith('w.nk ') || msgContent.startsWith('w.save ') || msgContent.startsWith('w.check ')) {
+  2647→      const game = activeGames.get(message.channel.id);
+  2648→      if (!game || game.state === GAME_STATE.ENDED || game.mode !== GAME_MODE.MAFIA) return;
+  2649→      if (game.state !== GAME_STATE.NIGHT) {
+  2650→        return message.reply('🌙 Night actions only during the night!');
+  2651→      }
+  2652→      const targetNum = parseInt(args[1]);
+  2653→      if (isNaN(targetNum)) return message.reply(`❌ Use \`${cmd} <number>\``);
+  2654→
+  2655→      let result;
+  2656→      if (cmd === 'w.nightkill' || cmd === 'w.nk') result = game.wolfKill(message.author.id, targetNum);
+  2657→      else if (cmd === 'w.save') result = game.doctorSave(message.author.id, targetNum);
+  2658→      else if (cmd === 'w.check') result = game.seerCheck(message.author.id, targetNum);
+  2659→
+  2660→      if (result) {
+  2661→        try {
+  2662→          await message.author.send(result.message);
+  2663→          try { await message.delete(); } catch (e) { /* can't delete */ }
+  2664→        } catch (e) {
+  2665→          await message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] }).then(m => {
+  2666→            setTimeout(() => m.delete().catch(() => {}), 5000);
+  2667→          });
+  2668→        }
+  2669→        if (result.success) await tryAutoResolveMafiaNight(game);
+  2670→      }
+  2671→      return;
+  2672→    }
+  2673→  }
+  2674→
+  2675→  /* ═══════════════════════════════════════════
+  2676→     🏏 Hand Cricket Commands
+  2677→     ═══════════════════════════════════════════ */
+  2678→
+  2679→  if (msgContent.startsWith('hc.')) {
+  2680→    const args = message.content.trim().split(/\s+/);
+  2681→    const cmd = args[0].toLowerCase();
+  2682→
+  2683→    /* ── hc.help ── */
+  2684→    if (cmd === 'hc.help') {
+  2685→      const hcHelp = new EmbedBuilder()
+  2686→        .setColor(0x2ECC71)
+  2687→        .setTitle('🏏 Hand Cricket — Commands')
+  2688→        .setDescription('Indian childhood classic — now with catch system, milestones & cinematic gameplay!')
+  2689→        .addFields(
+  2690→          { name: '🎮 Game Modes', value: '`hc.play [overs] [wickets]` — Play vs Bot\n`hc.challenge @user [overs] [wickets]` — Challenge a friend\n`hc.accept` — Accept challenge\n`hc.decline` — Decline challenge', inline: false },
+  2691→          { name: '🪙 Toss', value: '`hc.toss odd` or `hc.toss even` — Multiplayer toss\nClick **Heads** or **Tails** button — Single player toss\nThen click a number (1-6) below!', inline: false },
+  2692→          { name: '🏏 Playing', value: 'Click number buttons (1-6) below each ball\n🏏 Batsman & Bowler both choose secretly within 30s\n💀 Same number = OUT!\n🧤 Catch combos can trigger catches!\n✅ Different = Batsman scores that many runs\n⏱️ ' + MATCH_TURN_TIMEOUT + 's per ball!', inline: false },
+  2693→          { name: '📊 Stats & Fun', value: '`hc.profile` — Your stats (with rank!)\n`hc.profile @user` — Someone\'s stats\n`hc.score` — Current match score\n`hc.leaderboard [wins/runs/winrate/catches]` — Top players\n`hc.history [@user]` — Match history\n`hc.sledge @user` — Roast your friend 🔥', inline: false },
+  2694→          { name: '🏟️ Tournaments', value: '`hc.tournament create <name>` — Create tournament\n`hc.tournament join <name>` — Join tournament\n`hc.tournament start <name>` — Start tournament\n`hc.tournament list` — List tournaments', inline: false },
+  2695→          { name: '🔒 Lobbies', value: '`hc.lobby create [password]` — Create private lobby\n`hc.lobby join <code> [password]` — Join lobby\n`hc.lobby leave` — Leave lobby', inline: false },
+  2696→          { name: '💰 Economy', value: `Play: +₹${ECONOMY.PLAY_REWARD} | Win: +₹${ECONOMY.WIN_BONUS}\nFOUR: +₹${ECONOMY.FOUR_BONUS} | SIX: +₹${ECONOMY.SIX_BONUS}\nCATCH: +₹${ECONOMY.CATCH_BONUS} | Half Century: +₹${ECONOMY.MILESTONE_50_BONUS}\nCentury (100): +₹${ECONOMY.MILESTONE_100_BONUS}`, inline: false },
+  2697→          { name: '📖 Other', value: '`hc.howtoplay` — Detailed guide\n`hc.quit` — Quit current game\n\n💡 Also works as slash commands: `/handcricket`', inline: false },
+  2698→        )
+  2699→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+  2700→        .setTimestamp();
+  2701→      return message.reply({ embeds: [hcHelp] });
+  2702→    }
+  2703→
+  2704→    /* ── hc.challenge ── */
+  2705→    if (cmd === 'hc.challenge') {
+  2706→      const target = message.mentions.users.first();
+  2707→      if (!target) {
+  2708→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🏏 Mention someone to challenge! `hc.challenge @user`').setTimestamp()] });
+  2709→      }
+  2710→      if (target.id === message.author.id) {
+  2711→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🤦 You can\'t challenge yourself!').setTimestamp()] });
+  2712→      }
+  2713→      if (target.bot) {
+  2714→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🤖 You can\'t challenge bots!').setTimestamp()] });
+  2715→      }
+  2716→
+  2717→      // Check if either player is already in a game
+  2718→      if (hcPlayerMap.has(message.author.id)) {
+  2719→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 You are already in a game! Use `hc.quit` first.').setTimestamp()] });
+  2720→      }
+  2721→      if (hcPlayerMap.has(target.id)) {
+  2722→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`🚫 **${target.username}** is already in a game!`).setTimestamp()] });
+  2723→      }
+  2724→
+  2725→      // Check if there's already a game in this channel
+  2726→      if (activeHCGames.has(message.channel.id)) {
+  2727→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 There\'s already a game in this channel! Wait for it to finish.').setTimestamp()] });
+  2728→      }
+  2729→
+  2730→      const overs = parseInt(args[2]) || 1;
+  2731→      const wickets = parseInt(args[3]) || 2;
+  2732→      if (overs < 1 || overs > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Overs must be 1-10!').setTimestamp()] });
+  2733→      if (wickets < 1 || wickets > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Wickets must be 1-10!').setTimestamp()] });
+  2734→
+  2735→      const game = new HandCricketGame(message.author.id, target.id, message.channel.id, message.guild.id, { overs, wickets });
+  2736→      game.channel = message.channel;
+  2737→      activeHCGames.set(message.channel.id, game);
+  2738→      hcPlayerMap.set(message.author.id, message.channel.id);
+  2739→      hcPlayerMap.set(target.id, message.channel.id);
+  2740→
+  2741→      const challengeEmbed = new EmbedBuilder()
+  2742→        .setColor(0xFFD700)
+  2743→        .setTitle('🏏 Hand Cricket Challenge!')
+  2744→        .setDescription(
+  2745→          `**${message.author.username}** challenged **${target.username}** to Hand Cricket!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📏 **${overs} over${overs > 1 ? 's' : ''}**, **${wickets} wicket${wickets > 1 ? 's' : ''}**\n┣ ✅ **${target.username}**: Type \`hc.accept\`\n┣ ❌ **${target.username}**: Type \`hc.decline\`\n┗ ⏰ Waiting for response...`
+  2746→        )
+  2747→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+  2748→        .setTimestamp();
+  2749→      return message.reply({ embeds: [challengeEmbed] });
+  2750→    }
+  2751→
+  2752→    /* ── hc.accept ── */
+  2753→    if (cmd === 'hc.accept') {
+  2754→      const game = activeHCGames.get(message.channel.id);
+  2755→      if (!game || game.phase !== HC_PHASE.WAITING) {
+  2756→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No pending challenge to accept!').setTimestamp()] });
+  2757→      }
+  2758→      if (message.author.id !== game.player2Id) {
+  2759→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the challenged player can accept!').setTimestamp()] });
+  2760→      }
+  2761→
+  2762→      game.accept();
+  2763→
+  2764→      const acceptEmbed = new EmbedBuilder()
+  2765→        .setColor(0x2ECC71)
+  2766→        .setTitle('🏏 Challenge Accepted!')
+  2767→        .setDescription(
+  2768→          `Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🪙 **Toss Time!**\n┣ Both players: type \`hc.toss odd\` or \`hc.toss even\`\n┣ Then click a number (1-6) below for the toss!\n┗ 🤫 Your number is secret!`
+  2769→        )
+  2770→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+  2771→        .setTimestamp();
+  2772→      return message.reply({ embeds: [acceptEmbed] });
+  2773→    }
+  2774→
+  2775→    /* ── hc.decline ── */
+  2776→    if (cmd === 'hc.decline') {
+  2777→      const game = activeHCGames.get(message.channel.id);
+  2778→      if (!game || game.phase !== HC_PHASE.WAITING) {
+  2779→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No pending challenge to decline!').setTimestamp()] });
+  2780→      }
+  2781→      if (message.author.id !== game.player2Id) {
+  2782→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the challenged player can decline!').setTimestamp()] });
+  2783→      }
+  2784→
+  2785→      game.decline();
+  2786→      activeHCGames.delete(message.channel.id);
+  2787→      hcPlayerMap.delete(game.players[0]);
+  2788→      hcPlayerMap.delete(game.players[1]);
+  2789→
+  2790→      return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🏏 Challenge Declined!').setDescription(`**${message.author.username}** declined the challenge.`).setTimestamp()] });
+  2791→    }
+  2792→
+  2793→    /* ── hc.toss ── */
+  2794→    if (cmd === 'hc.toss') {
+  2795→      const game = activeHCGames.get(message.channel.id);
+  2796→      if (!game || game.phase !== HC_PHASE.TOSS) {
+  2797→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active toss! Use `hc.challenge` first.').setTimestamp()] });
+  2798→      }
+  2799→      const choice = args[1]?.toLowerCase();
+  2800→      if (!choice || !['odd', 'even'].includes(choice)) {
+  2801→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Use `hc.toss odd` or `hc.toss even`!').setTimestamp()] });
+  2802→      }
+  2803→
+  2804→      const result = game.setTossChoice(message.author.id, choice);
+  2805→
+  2806→      if (result.message === 'waiting') {
+  2807→        return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🪙 Toss Choice Recorded!').setDescription(`You chose **${choice}**!\n\nWaiting for the other player to choose...`).setTimestamp()] });
+  2808→      }
+  2809→
+  2810→      if (result.message === 'both_chosen') {
+  2811→        // Both chose odd/even — now they need to DM numbers
+  2812→        const p1Name = client.users.cache.get(game.players[0])?.username;
+  2813→        const p2Name = client.users.cache.get(game.players[1])?.username;
+  2814→
+  2815→        const tossReadyEmbed = new EmbedBuilder()
+  2816→          .setColor(0xFFD700)
+  2817→          .setTitle('🪙 Toss — Both Chosen!')
+  2818→          .setDescription(
+  2819→            `━━━━━━━━━━━━━━━━━━━\n` +
+  2820→            `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+  2821→            `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+  2822→            `┗ 👇 **Click a number (1-6) below!**`
+  2823→          )
+  2824→          .setFooter({ text: '🏏 No DM needed — click below!' })
+  2825→          .setTimestamp();
+  2826→        await message.reply({ embeds: [tossReadyEmbed] });
+  2827→
+  2828→        // No DM needed — number buttons are in channel
+  2829→        await message.reply({ embeds: [tossReadyEmbed], components: getNumberButtons(channelId) });
+  2830→        return;
+  2831→
+  2832→        // OLD DM code removed
+  2833→        for (const pid of game.players) {
+  2834→          try {
+  2835→            await client.users.cache.get(pid)?.send({
+  2836→              embeds: [new EmbedBuilder()
+  2837→                .setColor(0xFFD700)
+  2838→                .setTitle('🪙 Toss Time!')
+  2839→                .setDescription(`Type a number **1-6** to submit your toss number!\\n\\nYour choice is secret — choose wisely!`)
+  2840→                .setTimestamp()]
+  2841→            });
+  2842→          } catch (e) {
+  2843→            await message.channel.send(`⚠️ Could not DM <@${pid}> — tell them to enable DMs!`);
+  2844→          }
+  2845→        }
+  2846→        return;
+  2847→      }
+  2848→
+  2849→      if (!result.success) {
+  2850→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  2851→      }
+  2852→    }
+  2853→
+  2854→    /* ── hc.score ── */
+  2855→    if (cmd === 'hc.score') {
+  2856→      const game = activeHCGames.get(message.channel.id);
+  2857→      if (!game) {
+  2858→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel!').setTimestamp()] });
+  2859→      }
+  2860→
+  2861→      const playerNames = {};
+  2862→      for (const pid of game.players) {
+  2863→        playerNames[pid] = client.users.cache.get(pid)?.username || (pid.startsWith('BOT_') ? game.botProfile?.name || '🤖 Bot' : 'Player');
+  2864→      }
+  2865→
+  2866→      const sc = game.getFormattedScorecard(playerNames);
+  2867→      const timeLeft = game.getTimeRemaining();
+  2868→      const remaining = game.getRemainingBalls();
+  2869→
+  2870→      let desc = `━━━━━━━━━━━━━━━━━━━\n`;
+  2871→      desc += `┣ 🏏 **${sc.p1Name}**: ${sc.p1Score}\n`;
+  2872→      desc += `┣ 🏏 **${sc.p2Name}**: ${sc.p2Score}\n`;
+  2873→
+  2874→      if (game.phase === HC_PHASE.PLAYING || game.phase === HC_PHASE.INNINGS_BREAK) {
+  2875→        const batName = playerNames[game.battingNow] || '???';
+  2876→        const bowlName = playerNames[game.bowlingNow] || '???';
+  2877→        desc += `┣ 🏏 **Batting:** ${batName}\n`;
+  2878→        desc += `┣ 🎯 **Bowling:** ${bowlName}\n`;
+  2879→        desc += `┣ 📏 **Innings:** ${sc.innings}/2\n`;
+  2880→        if (sc.target) desc += `┣ 🎯 **Target:** ${sc.target} | **Need:** ${sc.need}\n`;
+  2881→        if (remaining) desc += `┣ ⏱️ **Balls Left:** ${remaining.ballsLeft}\n`;
+  2882→        if (timeLeft) desc += `┣ ⏱️ **Turn Timer:** ${timeLeft}s left\n`;
+  2883→      }
+  2884→
+  2885→      const phaseNames = { waiting: 'Waiting', toss: 'Toss', toss_choice: 'Toss Choice', playing: 'Playing', innings_break: 'Innings Break', ended: 'Ended' };
+  2886→      desc += `┗ 📋 **Phase:** ${phaseNames[game.phase] || game.phase}`;
+  2887→
+  2888→      return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Scoreboard').setDescription(desc).setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' }).setTimestamp()] });
+  2889→    }
+  2890→
+  2891→    /* ── hc.quit ── */
+  2892→    if (cmd === 'hc.quit') {
+  2893→      const hcChannelId = hcPlayerMap.get(message.author.id);
+  2894→      if (!hcChannelId) {
+  2895→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 You are not in any game!').setTimestamp()] });
+  2896→      }
+  2897→      const game = activeHCGames.get(hcChannelId);
+  2898→      if (!game) {
+  2899→        hcPlayerMap.delete(message.author.id);
+  2900→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game found!').setTimestamp()] });
+  2901→      }
+  2902→
+  2903→      const result = game.quit(message.author.id);
+  2904→      const winnerName = result.winner ? client.users.cache.get(result.winner)?.username : null;
+  2905→      activeHCGames.delete(hcChannelId);
+  2906→      hcPlayerMap.delete(game.players[0]);
+  2907→      hcPlayerMap.delete(game.players[1]);
+  2908→
+  2909→      return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🏏 Game Quit!').setDescription(`**${message.author.username}** quit the game! ${winnerName ? `**${winnerName}** wins!` : ''}`).setTimestamp()] });
+  2910→    }
+  2911→
+  2912→    /* ── hc.play — Single player vs Bot ── */
+  2913→    if (cmd === 'hc.play') {
+  2914→      // Check if already in game
+  2915→      if (hcPlayerMap.has(message.author.id)) {
+  2916→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 You are already in a game! Use `hc.quit` first.').setTimestamp()] });
+  2917→      }
+  2918→      if (activeHCGames.has(message.channel.id)) {
+  2919→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 There\'s already a game in this channel!').setTimestamp()] });
+  2920→      }
+  2921→
+  2922→      // Parse overs/wickets: hc.play 2 3 = 2 overs, 3 wickets
+  2923→      const overs = parseInt(args[1]) || 1;
+  2924→      const wickets = parseInt(args[2]) || 2;
+  2925→      if (overs < 1 || overs > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Overs must be 1-10!').setTimestamp()] });
+  2926→      if (wickets < 1 || wickets > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Wickets must be 1-10!').setTimestamp()] });
+  2927→
+  2928→      const botId = 'BOT_' + message.author.id; // virtual bot ID
+  2929→      const game = new HandCricketGame(message.author.id, botId, message.channel.id, message.guild.id, { isBot: true, overs, wickets });
+  2930→      game.channel = message.channel;
+  2931→      game.accept(); // Start toss phase immediately for bot games
+  2932→      activeHCGames.set(message.channel.id, game);
+  2933→      hcPlayerMap.set(message.author.id, message.channel.id);
+  2934→
+  2935→      const playEmbed = new EmbedBuilder()
+  2936→        .setColor(0x2ECC71)
+  2937→        .setTitle('🏏 Single Player — vs Bot!')
+  2938→        .setDescription(
+  2939→          `━━━━━━━━━━━━━━━━━━━\n` +
+  2940→          `┣ 🏏 **You** vs **${game.botProfile.name}**\n` +
+  2941→          `┣ 🧠 **Bot Style:** ${game.botProfile.style === 'aggressive' ? '🔥 Aggressive' : game.botProfile.style === 'defensive' ? '🛡️ Defensive' : '⚖️ Balanced'}\n` +
+  2942→          `┣ 📏 **${overs} over${overs > 1 ? 's' : ''}**, **${wickets} wicket${wickets > 1 ? 's' : ''}**\n` +
+  2943→          `┣ 🪙 **Toss Time!**\n` +
+  2944→          `┣ ⏱️ ${MATCH_TURN_TIMEOUT}s per ball\n` +
+  2945→          `┗ 📨 DM me **heads** or **tails** for the coin toss!`
+  2946→        )
+  2947→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+  2948→        .setTimestamp();
+  2949→      return message.reply({ embeds: [playEmbed] });
+  2950→    }
+  2951→
+  2952→    /* ── hc.profile ── */
+  2953→    if (cmd === 'hc.profile') {
+  2954→      const targetUser = message.mentions.users.first() || message.author;
+  2955→      const profile = await hcProfileManager.getOrCreateProfile(targetUser.id, targetUser.username);
+  2956→      if (!profile) {
+  2957→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Profile not available (database issue).').setTimestamp()] });
+  2958→      }
+  2959→      const winRate = profile.games_played > 0 ? ((profile.games_won / profile.games_played) * 100).toFixed(1) : '0.0';
+  2960→      const avgRuns = profile.games_played > 0 ? (profile.total_runs / profile.games_played).toFixed(1) : '0.0';
+  2961→      const strikeRate = profile.total_balls > 0 ? ((profile.total_runs / profile.total_balls) * 100).toFixed(1) : '0.0';
+  2962→
+  2963→      // Determine rank tier
+  2964→      let rank, rankEmoji;
+  2965→      if (profile.games_won >= 50) { rank = 'Legend'; rankEmoji = '👑'; }
+  2966→      else if (profile.games_won >= 30) { rank = 'Master'; rankEmoji = '💎'; }
+  2967→      else if (profile.games_won >= 15) { rank = 'Expert'; rankEmoji = '🏆'; }
+  2968→      else if (profile.games_won >= 5) { rank = 'Pro'; rankEmoji = '⭐'; }
+  2969→      else if (profile.games_played >= 3) { rank = 'Rookie'; rankEmoji = '🌟'; }
+  2970→      else { rank = 'Beginner'; rankEmoji = '🎯'; }
+  2971→
+  2972→      const profileEmbed = new EmbedBuilder()
+  2973→        .setColor(0xFFD700)
+  2974→        .setAuthor({ name: `${targetUser.username}'s Profile`, iconURL: targetUser.displayAvatarURL({ dynamic: true }) })
+  2975→        .setTitle(`${rankEmoji} ${rank} — Hand Cricket Stats`)
+  2976→        .setDescription(
+  2977→          `━━━━━━━━━━━━━━━━━━━\n` +
+  2978→          `┣ 🎮 **Games:** ${profile.games_played}\n` +
+  2979→          `┣ 🏆 **Wins:** ${profile.games_won}\n` +
+  2980→          `┣ 📊 **Win Rate:** ${winRate}%\n` +
+  2981→          `┣ 🔥 **Win Streak:** ${profile.win_streak || 0} (Best: ${profile.best_win_streak || 0})\n` +
+  2982→          `┣ 🏏 **Total Runs:** ${profile.total_runs}\n` +
+  2983→          `┣ 📈 **Avg Runs:** ${avgRuns}\n` +
+  2984→          `┣ 💥 **Highest Score:** ${profile.highest_score}\n` +
+  2985→          `┣ 🔥 **Strike Rate:** ${strikeRate}\n` +
+  2986→          `┣ 🎯 **Total Wickets:** ${profile.total_wickets}\n` +
+  2987→          `┣ 4️⃣ **Fours:** ${profile.total_fours}\n` +
+  2988→          `┗ 6️⃣ **Sixes:** ${profile.total_sixes}`
+  2989→        )
+  2990→        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
+  2991→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+  2992→        .setTimestamp();
+  2993→      return message.reply({ embeds: [profileEmbed] });
+  2994→    }
+  2995→
+  2996→    /* ── hc.sledge ── */
+  2997→    if (cmd === 'hc.sledge') {
+  2998→      const target = message.mentions.users.first();
+  2999→      if (!target) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🏏 Mention someone to sledge! `hc.sledge @user`').setTimestamp()] });
+  3000→      if (target.id === message.author.id) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🤦 You can\'t sledge yourself!').setTimestamp()] });
+  3001→
+  3002→      const sledge = SLEDGE_MESSAGES[Math.floor(Math.random() * SLEDGE_MESSAGES.length)]
+  3003→        .replace(/{user}/g, message.author.username)
+  3004→        .replace(/{target}/g, target.username);
+  3005→
+  3006→      const sledgeEmbed = new EmbedBuilder()
+  3007→        .setColor(0xE74C3C)
+  3008→        .setTitle('🔥 SLEDGE!')
+  3009→        .setDescription(sledge)
+  3010→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+  3011→        .setTimestamp();
+  3012→      return message.reply({ embeds: [sledgeEmbed] });
+  3013→    }
+  3014→
+  3015→    /* ── hc.howtoplay ── */
+  3016→    if (cmd === 'hc.howtoplay') {
+  3017→      const guideEmbed = new EmbedBuilder()
+  3018→        .setColor(0x3498DB)
+  3019→        .setTitle('🏏 Hand Cricket — Complete Guide')
+  3020→        .setDescription('Indian childhood classic — now on Discord! Fast, interactive, and beginner friendly!')
+  3021→        .addFields(
+  3022→          { name: '🎮 Game Modes', value: '`hc.play [overs] [wickets]` — Play vs Bot (default: 1 over, 2 wickets)\n`hc.challenge @user` — Challenge a friend\n`hc.accept` / `hc.decline` — Respond to challenge', inline: false },
+  3023→          { name: '🪙 Toss (Single Player)', value: 'DM the bot `heads` or `tails`\nCoin flip decides who wins the toss\nWinner chooses to bat or bowl', inline: false },
+  3024→          { name: '🪙 Toss (Multiplayer)', value: '`hc.toss odd` or `hc.toss even` in channel\nThen DM the bot a number (1-6)\nSum odd/even decides toss winner!\nWinner DMs `bat` or `bowl`', inline: false },
+  3025→          { name: '🏏 Playing', value: 'DM the bot a number (1-6) each ball\n🏏 Batsman & Bowler both choose secretly\n💀 Same number = OUT!\n✅ Different = Batsman scores that many runs\n⏱️ ' + MATCH_TURN_TIMEOUT + 's per ball!', inline: false },
+  3026→          { name: '📏 Scoring', value: '1️⃣ = 1 run  ·  2️⃣ = 2 runs  ·  3️⃣ = 3 runs\n4️⃣ = 4 runs (FOUR!)  ·  5️⃣ = 5 runs  ·  6️⃣ = 6 runs (SIXER!)\nEach innings = overs × 6 balls\nAll wickets down = all out!', inline: false },
+  3027→          { name: '🏆 Winning', value: '2 innings each — highest score wins!\nIn 2nd innings, if chaser passes target = instant win!\nEqual scores = TIE', inline: false },
+  3028→          { name: '💰 Economy Rewards', value: `Play a game: +₹${ECONOMY.PLAY_REWARD} | Win: +₹${ECONOMY.WIN_BONUS}\nFOUR: +₹${ECONOMY.FOUR_BONUS} | SIX: +₹${ECONOMY.SIX_BONUS}\nCentury (36+): +₹${ECONOMY.CENTURY_BONUS}`, inline: false },
+  3029→          { name: '📊 Other Commands', value: '`hc.profile` — Your stats (with rank!)\n`hc.score` — Current match score\n`hc.leaderboard [wins/runs/winrate]` — Top players\n`hc.sledge @user` — Roast your friend 🔥\n`hc.quit` — Quit current game', inline: false },
+  3030→        )
+  3031→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+  3032→        .setTimestamp();
+  3033→      return message.reply({ embeds: [guideEmbed] });
+  3034→    }
+  3035→
+  3036→    /* ── hc.leaderboard ── */
+  3037→    if (cmd === 'hc.leaderboard') {
+  3038→      const sortBy = args[1]?.toLowerCase() || 'wins';
+  3039→      let leaderboard;
+  3040→      if (sortBy === 'runs') {
+  3041→        leaderboard = await hcProfileManager.getLeaderboardByRuns(10);
+  3042→      } else if (sortBy === 'winrate') {
+  3043→        leaderboard = await hcProfileManager.getLeaderboardByWinRate(10);
+  3044→      } else {
+  3045→        leaderboard = await hcProfileManager.getLeaderboard(10);
+  3046→      }
+  3047→
+  3048→      if (!leaderboard || leaderboard.length === 0) {
+  3049→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ No players found! Play some games first.').setTimestamp()] });
+  3050→      }
+  3051→
+  3052→      const medals = ['🥇', '🥈', '🥉'];
+  3053→      let desc = '';
+  3054→      for (let i = 0; i < leaderboard.length; i++) {
+  3055→        const p = leaderboard[i];
+  3056→        const medal = i < 3 ? medals[i] : `**${i + 1}.**`;
+  3057→        const winRate = p.games_played > 0 ? ((p.games_won / p.games_played) * 100).toFixed(0) : '0';
+  3058→
+  3059→        if (sortBy === 'runs') {
+  3060→          desc += `${medal} **${p.username}** — ${p.total_runs} runs (${winRate}% WR)\n`;
+  3061→        } else if (sortBy === 'winrate') {
+  3062→          desc += `${medal} **${p.username}** — ${winRate}% WR (${p.games_won}W / ${p.games_played}G)\n`;
+  3063→        } else {
+  3064→          desc += `${medal} **${p.username}** — ${p.games_won} wins (${winRate}% WR)\n`;
+  3065→        }
+  3066→      }
+  3067→
+  3068→      const sortLabel = sortBy === 'runs' ? '🏏 Most Runs' : sortBy === 'winrate' ? '📊 Best Win Rate' : '🏆 Most Wins';
+  3069→
+  3070→      const lbEmbed = new EmbedBuilder()
+  3071→        .setColor(0xFFD700)
+  3072→        .setTitle(`🏏 Hand Cricket Leaderboard — ${sortLabel}`)
+  3073→        .setDescription(desc)
+  3074→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket | Min 3 games for win rate' })
+  3075→        .setTimestamp();
+  3076→      return message.reply({ embeds: [lbEmbed] });
+  3077→    }
+  3078→
+  3079→    /* ── hc.history — Match History ── */
+  3080→    if (cmd === 'hc.history') {
+  3081→      const targetUser = message.mentions.users.first() || message.author;
+  3082→      const history = await hcProfileManager.getMatchHistory(targetUser.id, 5);
+  3083→      if (!history || history.length === 0) {
+  3084→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`❌ No match history found for **${targetUser.username}**! Play some games first.`).setTimestamp()] });
+  3085→      }
+  3086→
+  3087→      let desc = '';
+  3088→      for (let i = 0; i < history.length; i++) {
+  3089→        const match = history[i];
+  3090→        const date = match.start_time ? new Date(match.start_time).toLocaleDateString() : 'Unknown';
+  3091→        const winner = match.winner;
+  3092→        const isWinner = winner === targetUser.id;
+  3093→        desc += `${isWinner ? '🏆' : '❌'} **Match ${i + 1}** — ${date}\n`;
+  3094→        desc += `┣ 📏 ${match.overs} overs, ${match.wickets} wickets\n`;
+  3095→        if (match.catch_chances > 0) {
+  3096→          desc += `┣ 🧤 Catches: ${match.catches_taken}/${match.catch_chances} (${match.catches_dropped} dropped)\n`;
+  3097→        }
+  3098→        desc += `┗ ${isWinner ? '**Won!**' : winner ? 'Lost' : 'Tied'}\n\n`;
+  3099→      }
+  3100→
+  3101→      const histEmbed = new EmbedBuilder()
+  3102→        .setColor(0x3498DB)
+  3103→        .setTitle(`🏏 Match History — ${targetUser.username}`)
+  3104→        .setDescription(desc)
+  3105→        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket | Last 5 matches' })
+  3106→        .setTimestamp();
+  3107→      return message.reply({ embeds: [histEmbed] });
+  3108→    }
+  3109→
+  3110→    /* ── hc.tournament ── */
+  3111→    if (cmd === 'hc.tournament') {
+  3112→      const subCmd = args[1]?.toLowerCase();
+  3113→
+  3114→      if (subCmd === 'create') {
+  3115→        const name = args.slice(2).join('_') || `tournament_${Date.now()}`;
+  3116→        const maxPlayers = parseInt(args[3]) || 8;
+  3117→        const result = hcTournamentManager.create(name, message.author.id, message.channel.id, message.guild.id, { maxPlayers });
+  3118→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  3119→
+  3120→        const tEmbed = new EmbedBuilder()
+  3121→          .setColor(0xFFD700)
+  3122→          .setTitle('🏟️ Tournament Created!')
+  3123→          .setDescription(
+  3124→            `━━━━━━━━━━━━━━━━━━━\n` +
+  3125→            `┣ 📛 **Name:** ${name}\n` +
+  3126→            `┣ 👥 **Players:** 1/${result.tournament.maxPlayers}\n` +
+  3127→            `┣ 🏏 **Host:** ${message.author.username}\n` +
+  3128→            `┣ 📝 Join: \`hc.tournament join ${name}\`\n` +
+  3129→            `┣ 🚀 Start: \`hc.tournament start ${name}\`\n` +
+  3130→            `┗ 🗑️ Delete: \`hc.tournament delete ${name}\``
+  3131→          )
+  3132→          .setFooter({ text: '🏏 Hand Cricket Tournament' })
+  3133→          .setTimestamp();
+  3134→        return message.reply({ embeds: [tEmbed] });
+  3135→      }
+  3136→
+  3137→      if (subCmd === 'join') {
+  3138→        const name = args.slice(2).join('_');
+  3139→        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name! `hc.tournament join <name>`').setTimestamp()] });
+  3140→        const result = hcTournamentManager.join(name, message.author.id);
+  3141→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  3142→
+  3143→        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setTitle('✅ Joined Tournament!').setDescription(`**${message.author.username}** joined! (${result.playerCount}/${result.maxPlayers} players)`).setTimestamp()] });
+  3144→      }
+  3145→
+  3146→      if (subCmd === 'leave') {
+  3147→        const name = args.slice(2).join('_');
+  3148→        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name! `hc.tournament leave <name>`').setTimestamp()] });
+  3149→        const result = hcTournamentManager.leave(name, message.author.id);
+  3150→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  3151→        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setDescription('✅ Left the tournament!').setTimestamp()] });
+  3152→      }
+  3153→
+  3154→      if (subCmd === 'start') {
+  3155→        const name = args.slice(2).join('_');
+  3156→        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name! `hc.tournament start <name>`').setTimestamp()] });
+  3157→        const result = hcTournamentManager.start(name);
+  3158→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  3159→
+  3160→        let matchesDesc = '';
+  3161→        for (let i = 0; i < result.firstRoundMatches.length; i++) {
+  3162→          const m = result.firstRoundMatches[i];
+  3163→          const p1 = client.users.cache.get(m.player1)?.username || `<@${m.player1}>`;
+  3164→          const p2 = m.player2 ? (client.users.cache.get(m.player2)?.username || `<@${m.player2}>`) : 'BYE';
+  3165→          matchesDesc += `**Match ${i + 1}:** ${p1} vs ${p2}${m.player2 === null ? ' (auto-advance)' : ''}\n`;
+  3166→        }
+  3167→
+  3168→        const tEmbed = new EmbedBuilder()
+  3169→          .setColor(0xFFD700)
+  3170→          .setTitle('🏟️ Tournament Started!')
+  3171→          .setDescription(
+  3172→            `**${result.tournament.name}** — ${result.tournament.players.length} players, ${result.numRounds} rounds!\n\n` +
+  3173→            `**Round 1 Matches:**\n${matchesDesc}\n` +
+  3174→            `Players: Use \`hc.challenge @opponent\` to play your matches!`
+  3175→          )
+  3176→          .setFooter({ text: '🏏 Hand Cricket Tournament' })
+  3177→          .setTimestamp();
+  3178→        return message.reply({ embeds: [tEmbed] });
+  3179→      }
+  3180→
+  3181→      if (subCmd === 'delete') {
+  3182→        const name = args.slice(2).join('_');
+  3183→        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name!').setTimestamp()] });
+  3184→        const result = hcTournamentManager.delete(name, message.author.id);
+  3185→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  3186→        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🗑️ Tournament Deleted!').setTimestamp()] });
+  3187→      }
+  3188→
+  3189→      if (subCmd === 'list') {
+  3190→        const list = hcTournamentManager.list();
+  3191→        if (list.length === 0) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ No tournaments found! Create one with `hc.tournament create <name>`').setTimestamp()] });
+  3192→
+  3193→        let desc = '';
+  3194→        for (const t of list) {
+  3195→          const statusEmoji = t.status === 'registration' ? '📝' : t.status === 'in_progress' ? '🏏' : '🏆';
+  3196→          desc += `${statusEmoji} **${t.name}** — ${t.players}/${t.maxPlayers} players (${t.status})\n`;
+  3197→        }
+  3198→
+  3199→        return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏟️ Tournaments').setDescription(desc).setTimestamp()] });
+  3200→      }
+  3201→
+  3202→      // Default: show tournament help
+  3203→      const tHelpEmbed = new EmbedBuilder()
+  3204→        .setColor(0x3498DB)
+  3205→        .setTitle('🏟️ Tournament Commands')
+  3206→        .setDescription(
+  3207→          '`hc.tournament create <name>` — Create a tournament\n' +
+  3208→          '`hc.tournament join <name>` — Join a tournament\n' +
+  3209→          '`hc.tournament leave <name>` — Leave a tournament\n' +
+  3210→          '`hc.tournament start <name>` — Start the tournament (host)\n' +
+  3211→          '`hc.tournament delete <name>` — Delete the tournament (host)\n' +
+  3212→          '`hc.tournament list` — List all tournaments'
+  3213→        )
+  3214→        .setTimestamp();
+  3215→      return message.reply({ embeds: [tHelpEmbed] });
+  3216→    }
+  3217→
+  3218→    /* ── hc.lobby ── */
+  3219→    if (cmd === 'hc.lobby') {
+  3220→      const subCmd = args[1]?.toLowerCase();
+  3221→
+  3222→      if (subCmd === 'create') {
+  3223→        const password = args[2] || null;
+  3224→        const result = hcLobbyManager.create(message.author.id, message.channel.id, message.guild.id, password);
+  3225→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Failed to create lobby!').setTimestamp()] });
+  3226→
+  3227→        const lEmbed = new EmbedBuilder()
+  3228→          .setColor(0x2ECC71)
+  3229→          .setTitle('🔒 Private Lobby Created!')
+  3230→          .setDescription(
+  3231→            `━━━━━━━━━━━━━━━━━━━\n` +
+  3232→            `┣ 🏷️ **Code:** \`${result.code}\`\n` +
+  3233→            `┣ 🔑 **Password:** ${password ? `\`${password}\`` : 'None (open lobby)'}\n` +
+  3234→            `┣ 👥 **Players:** 1/2\n` +
+  3235→            `┣ 🏏 **Host:** ${message.author.username}\n` +
+  3236→            `┗ 📝 Join: \`hc.lobby join ${result.code}${password ? ` ${password}` : ''}\``
+  3237→          )
+  3238→          .setFooter({ text: '🏏 Private Lobby — Share the code with your friend!' })
+  3239→          .setTimestamp();
+  3240→        return message.reply({ embeds: [lEmbed] });
+  3241→      }
+  3242→
+  3243→      if (subCmd === 'join') {
+  3244→        const code = args[2]?.toUpperCase();
+  3245→        if (!code) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide lobby code! `hc.lobby join <code> [password]`').setTimestamp()] });
+  3246→        const password = args[3] || null;
+  3247→        const result = hcLobbyManager.join(code, message.author.id, password);
+  3248→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  3249→
+  3250→        // If lobby is full (2 players), auto-start the game
+  3251→        if (result.lobby.players.length >= result.lobby.maxPlayers) {
+  3252→          const lobby = result.lobby;
+  3253→          const game = new HandCricketGame(lobby.creatorId, message.author.id, lobby.channelId, lobby.guildId, { overs: lobby.overs, wickets: lobby.wickets });
+  3254→          game.channel = message.channel;
+  3255→          game.accept();
+  3256→          activeHCGames.set(lobby.channelId, game);
+  3257→          hcPlayerMap.set(lobby.creatorId, lobby.channelId);
+  3258→          hcPlayerMap.set(message.author.id, lobby.channelId);
+  3259→
+  3260→          hcLobbyManager.delete(code);
+  3261→
+  3262→          const startEmbed = new EmbedBuilder()
+  3263→            .setColor(0x2ECC71)
+  3264→            .setTitle('🏏 Lobby Game Starting!')
+  3265→            .setDescription(
+  3266→              `Both players are in! Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  3267→              `┣ 🪙 **Toss Time!**\n` +
+  3268→              `┣ Both players: use \`hc.toss odd\` or \`hc.toss even\`\n` +
+  3269→              `┣ Then DM me a number (1-6) for the toss\n` +
+  3270→              `┗ 🤫 Your number is secret!`
+  3271→            )
+  3272→            .setFooter({ text: '🏏 Hand Cricket — Private Lobby Match' })
+  3273→            .setTimestamp();
+  3274→          return message.reply({ embeds: [startEmbed] });
+  3275→        }
+  3276→
+  3277→        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setTitle('✅ Joined Lobby!').setDescription(`Waiting for opponent... (${result.lobby.players.length}/${result.lobby.maxPlayers})`).setTimestamp()] });
+  3278→      }
+  3279→
+  3280→      if (subCmd === 'leave') {
+  3281→        const existing = hcLobbyManager.getByPlayer(message.author.id);
+  3282→        if (!existing) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ You are not in any lobby!').setTimestamp()] });
+  3283→        const result = hcLobbyManager.leave(existing.code, message.author.id);
+  3284→        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+  3285→        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setDescription('✅ Left the lobby!').setTimestamp()] });
+  3286→      }
+  3287→
+  3288→      // Default: show lobby help
+  3289→      const lHelpEmbed = new EmbedBuilder()
+  3290→        .setColor(0x3498DB)
+  3291→        .setTitle('🔒 Lobby Commands')
+  3292→        .setDescription(
+  3293→          '`hc.lobby create [password]` — Create a private lobby\n' +
+  3294→          '`hc.lobby join <code> [password]` — Join a lobby\n' +
+  3295→          '`hc.lobby leave` — Leave your current lobby'
+  3296→        )
+  3297→        .setTimestamp();
+  3298→      return message.reply({ embeds: [lHelpEmbed] });
+  3299→    }
+  3300→  }
+  3301→
+  3302→  const username = message.member?.displayName || message.author.username;
+  3303→  const content = message.content.toLowerCase().trim();
+  3304→
+  3305→  /* ── AFK Prefix Commands ── */
+  3306→  const matchedPrefix = AFK_PREFIXES.find(p => content.startsWith(p));
+  3307→  if (matchedPrefix) {
+  3308→    const args = message.content.slice(matchedPrefix.length).trim();
+  3309→    const isBreak = args.toLowerCase().startsWith('break');
+  3310→    const reason = isBreak
+  3311→      ? (args.slice(5).trim() || 'Taking a break ☕')
+  3312→      : (args || 'Just stepped away for a moment 💫');
+  3313→
+  3314→    const { error } = await supabase
+  3315→      .from('afk_users')
+  3316→      .upsert({
+  3317→        user_id: message.author.id,
+  3318→        guild_id: message.guild.id,
+  3319→        afk_time: new Date().toISOString(),
+  3320→        reason,
+  3321→        avatar_url: message.author.displayAvatarURL({ dynamic: true, size: 256 }),
+  3322→        username: message.author.username,
+  3323→      }, { onConflict: 'user_id,guild_id' });
+  3324→
+  3325→    if (error) { return; }
+  3326→
+  3327→    // Update in-memory cache
+  3328→    afkCache.set(`${message.guild.id}-${message.author.id}`, {
+  3329→      user_id: message.author.id,
+  3330→      guild_id: message.guild.id,
+  3331→      afk_time: new Date().toISOString(),
+  3332→      reason,
+  3333→      avatar_url: message.author.displayAvatarURL({ dynamic: true, size: 256 }),
+  3334→      username: message.author.username,
+  3335→    });
+  3336→
+  3337→    const afkTs = Math.floor(Date.now() / 1000);
+  3338→    const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n📝 **Reason:** \`${reason}\`\n⏱️ Went AFK: <t:${afkTs}:f> (<t:${afkTs}:R>)`;
+  3339→
+  3340→    const embed = new EmbedBuilder()
+  3341→      .setColor(0xFF69B4)
+  3342→      .setAuthor({ name: `${username} is now ${isBreak ? 'on a break' : 'AFK'}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+  3343→      .setTitle(isBreak ? '☕ Break Time!' : '🌙 AFK Mode Activated')
+  3344→      .setDescription(styledDesc)
+  3345→      .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 256 }))
+  3346→      .setTimestamp();
+  3347→
+  3348→    const isOwner = message.guild.ownerId === message.author.id;
+  3349→    const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+  3350→    const botCanManageRoles = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+  3351→
+  3352→    const afkRole = await getAfkRole(message.guild);
+  3353→    if (afkRole && message.member && botCanManageRoles && !message.member.roles.cache.has(afkRole.id)) {
+  3354→      try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { /* silently skip */ }
+  3355→    }
+  3356→    if (message.member && !isOwner && botCanManageNicknames) {
+  3357→      try {
+  3358→        const afkNick = getAfkNickname(message.member.nickname, message.author.username);
+  3359→        await message.member.setNickname(afkNick, 'User went AFK');
+  3360→      } catch (e) { /* silently skip — hierarchy issue */ }
+  3361→    }
+  3362→
+  3363→    const afkPrefixMsg = await message.reply({ embeds: [embed] }).catch(() => null);
+  3364→    if (afkPrefixMsg) setTimeout(() => { afkPrefixMsg.delete().catch(() => {}); }, 1000);
+  3365→    return;
+  3366→  }
+  3367→
+  3368→  /* ── AFK Return ── */
+  3369→  try {
+  3370→    if (!supabase || !afkDbAvailable) return;
+  3371→
+  3372→    // Check in-memory cache first
+  3373→    const cacheKey = `${message.guild.id}-${message.author.id}`;
+  3374→    const cached = afkCache.get(cacheKey);
+  3375→    if (cached) {
+  3376→      const afkData = cached;
+  3377→      const away = timeSince(afkData.afk_time);
+  3378→      const returnDesc = `${pick(AFK_RETURN_MESSAGES)}\n\uD83D\uDCDD \`${afkData.reason}\` \u2022 \u23F1\uFE0F Away for \`${away}\``;
+  3379→      const embed = new EmbedBuilder()
+  3380→        .setColor(0xFF1493)
+  3381→        .setAuthor({ name: `${username} is back!`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+  3382→        .setTitle('\uD83D\uDC9D Welcome Back!')
+  3383→        .setDescription(returnDesc)
+  3384→        .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
+  3385→        .setTimestamp();
+  3386→      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
+  3387→      if (returnMsg) setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
+  3388→      afkCache.delete(cacheKey);
+  3389→      // Remove role & nickname from cache hit
+  3390→      const isReturnOwner = message.guild.ownerId === message.author.id;
+  3391→      const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+  3392→      const botCanManageRoles = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+  3393→      const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+  3394→      if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id) && botCanManageRoles) {
+  3395→        try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) {}
+  3396→      }
+  3397→      if (message.member && !isReturnOwner && botCanManageNicknames) {
+  3398→        try {
+  3399→          const normalNick = getNormalNickname(message.member.nickname, message.author.username);
+  3400→          await message.member.setNickname(normalNick, 'User returned from AFK');
+  3401→        } catch (e) {}
+  3402→      }
+  3403→      try { await supabase.from('afk_users').delete().eq('user_id', message.author.id).eq('guild_id', message.guild.id); } catch(e) {}
+  3404→      return;
+  3405→    }
+  3406→
+  3407→    // Cache miss — query DB
+  3408→    const { data: afkData, error: dbError } = await supabase
+  3409→      .from('afk_users')
+  3410→      .select('*')
+  3411→      .eq('user_id', message.author.id)
+  3412→      .eq('guild_id', message.guild.id)
+  3413→      .maybeSingle();
+  3414→
+  3415→    if (dbError) {
+  3416→      if (afkDbAvailable) { console.error('AFK DB error, disabling AFK checks:', dbError.message); afkDbAvailable = false; }
+  3417→      return;
+  3418→    }
+  3419→
+  3420→    if (afkData) {
+  3421→      const away = timeSince(afkData.afk_time);
+  3422→      const returnDesc = `${pick(AFK_RETURN_MESSAGES)}\n📝 \`${afkData.reason}\` • ⏱️ Away for \`${away}\``;
+  3423→
+  3424→      const embed = new EmbedBuilder()
+  3425→        .setColor(0xFF1493)
+  3426→        .setAuthor({ name: `${username} is back!`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+  3427→        .setTitle('💝 Welcome Back!')
+  3428→        .setDescription(returnDesc)
+  3429→        .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
+  3430→        .setTimestamp();
+  3431→      // Send in server channel — auto-delete after 1s
+  3432→      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
+  3433→      if (returnMsg) {
+  3434→        setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
+  3435→      }
+  3436→
+  3437→      const isReturnOwner = message.guild.ownerId === message.author.id;
+  3438→      const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+  3439→      const botCanManageRoles = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+  3440→
+  3441→      const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+  3442→      if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id) && botCanManageRoles) {
+  3443→        try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { /* silently skip */ }
+  3444→      }
+  3445→      if (message.member && !isReturnOwner && botCanManageNicknames) {
+  3446→        try {
+  3447→          const normalNick = getNormalNickname(message.member.nickname, message.author.username);
+  3448→          await message.member.setNickname(normalNick, 'User returned from AFK');
+  3449→        } catch (e) { /* silently skip — hierarchy issue */ }
+  3450→      }
+  3451→      await supabase.from('afk_users').delete().eq('user_id', message.author.id).eq('guild_id', message.guild.id);
+  3452→    }
+  3453→  } catch (err) {}
+  3454→
+  3455→  /* ── AFK Mention ── */
+  3456→  if (message.mentions.users.size > 0) {
+  3457→    try {
+  3458→      for (const [userId] of message.mentions.users) {
+  3459→        if (userId === message.author.id) continue;
+  3460→        const cooldownKey = `${message.author.id}-${userId}`;
+  3461→        const now = Date.now();
+  3462→        const lastNotified = mentionCooldowns.get(cooldownKey);
+  3463→        if (lastNotified && now - lastNotified < AFK_MENTION_COOLDOWN) continue;
+  3464→
+  3465→        // Check in-memory cache first
+  3466→        const mCacheKey = `${message.guild.id}-${userId}`;
+  3467→        let mentionedAfk = afkCache.get(mCacheKey);
+  3468→
+  3469→        if (!mentionedAfk && supabase && afkDbAvailable) {
+  3470→          const { data: dbData, error: dbError } = await supabase
+  3471→            .from('afk_users')
+  3472→            .select('*')
+  3473→            .eq('user_id', userId)
+  3474→            .eq('guild_id', message.guild.id)
+  3475→            .maybeSingle();
+  3476→          if (dbError) { if (afkDbAvailable) { afkDbAvailable = false; } break; }
+  3477→          if (dbData) afkCache.set(mCacheKey, dbData);
+  3478→          mentionedAfk = dbData;
+  3479→        }
+  3480→        if (mentionedAfk) {
+  3481→          const away = timeSince(mentionedAfk.afk_time);
+  3482→          // Quick channel message — auto-delete after 1s
+  3483→          const afkMsg = await message.reply({ content: `🌙 **${mentionedAfk.username}** is AFK — \`${mentionedAfk.reason}\` (${away})` }).catch(() => null);
+  3484→          if (afkMsg) {
+  3485→            setTimeout(() => { afkMsg.delete().catch(() => {}); }, 1000);
+  3486→          }
+  3487→          // DM the AFK user — tell them who pinged and where
+  3488→          try {
+  3489→            const afkUser = await client.users.fetch(userId);
+  3490→            const pingEmbed = new EmbedBuilder()
+  3491→              .setColor(0xE91E63)
+  3492→              .setAuthor({ name: `${message.author.username} pinged you!`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+  3493→              .setTitle('📢 Mentioned While AFK')
+  3494→              .setDescription(
+  3495→                `👤 **Who:** ${message.author.username} (<@${message.author.id}>)\n` +
+  3496→                `📢 **Where:** <#${message.channel.id}> in **${message.guild.name}**\n` +
+  3497→                `💬 **Msg:** ${message.content.length > 150 ? message.content.slice(0, 150) + '...' : message.content}\n` +
+  3498→                `🔗 [Jump to message](${message.url})`
+  3499→              )
+  3500→              .setTimestamp();
+  3501→            await afkUser.send({ embeds: [pingEmbed] });
+  3502→          } catch (e) {
+  3503→            // DM blocked — can't notify
+  3504→          }
+
+[showing lines 1505-3504 of 3571; use offset=3505 with limit to continue reading]

@@ -1,0 +1,2002 @@
+     1→require('dotenv').config();
+     2→
+     3→// Keep-alive HTTP server for Render (required to prevent SIGTERM)
+     4→const http = require('http');
+     5→const server = http.createServer((req, res) => {
+     6→  res.writeHead(200, { 'Content-Type': 'text/plain' });
+     7→  res.end('💖 Sweetheart Bot is running!');
+     8→});
+     9→const PORT = process.env.PORT || 3000;
+    10→server.listen(PORT, () => {
+    11→  console.log(`✅ Keep-alive server running on port ${PORT}`);
+    12→});
+    13→
+    14→const {
+    15→  Client,
+    16→  GatewayIntentBits,
+    17→  Partials,
+    18→  EmbedBuilder,
+    19→  Collection,
+    20→  MessageFlags,
+    21→  Events,
+    22→  REST,
+    23→  Routes,
+    24→  PermissionFlagsBits,
+    25→  ActionRowBuilder,
+    26→  ButtonBuilder,
+    27→  ButtonStyle,
+    28→} = require('discord.js');
+    29→const fs = require('fs');
+    30→const path = require('path');
+    31→const { translate } = require('@vitalets/google-translate-api');
+    32→
+    33→/* ═══════════════════════════════════════════
+    34→   ✅  Environment Validation
+    35→   ═══════════════════════════════════════════ */
+    36→
+    37→const REQUIRED_ENV = ['DISCORD_TOKEN'];
+    38→const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);
+    39→if (missingEnv.length) {
+    40→  console.error(`❌ Missing required environment variables: ${missingEnv.join(', ')}`);
+    41→  process.exit(1);
+    42→}
+    43→
+    44→// Owner control system — set BOT_OWNER_ID in env vars
+    45→if (process.env.BOT_OWNER_ID) {
+    46→  console.log(`👑 Owner control enabled — Owner ID(s): ${process.env.BOT_OWNER_ID}`);
+    47→} else {
+    48→  console.warn('⚠️  BOT_OWNER_ID not set — /owner commands will be disabled. Add your Discord user ID to enable owner controls.');
+    49→}
+    50→
+    51→/* ═══════════════════════════════════════════
+    52→   🗄️  Supabase Client
+    53→   ═══════════════════════════════════════════ */
+    54→
+    55→let supabase = null;
+    56→if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY)) {
+    57→  try {
+    58→    supabase = require('./db');
+    59→    if (supabase) console.log('✅ Supabase ready — AFK features enabled!');
+    60→  } catch (err) {
+    61→    console.error('❌ Failed to initialize Supabase:', err.message);
+    62→  }
+    63→} else {
+    64→  console.warn('⚠️  SUPABASE_URL or database key not set — AFK features disabled.');
+    65→}
+    66→
+    67→const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
+    68→const {
+    69→  WerewolfGame, GAME_MODE, GAME_STATE, ROLE, ROLE_EMOJI, ROLE_COLORS,
+    70→  activeGames, NIGHT_TIMER, DAY_TIMER, SHOOT_TIMER
+    71→} = require('./werewolf');
+    72→const { pick, timeSince } = require('./utils');
+    73→const {
+    74→  HandCricketGame, GAME_PHASE: HC_PHASE, ProfileManager,
+    75→  TournamentManager, LobbyManager,
+    76→  EMOJI_NUMBERS, SLEDGE_MESSAGES, BOT_PROFILES,
+    77→  COMMENTARY_RUNS, COMMENTARY_OUT, COMMENTARY_TOSS,
+    78→  COMMENTARY_INNINGS_BREAK, COMMENTARY_GAME_OVER_WIN, COMMENTARY_GAME_OVER_TIE,
+    79→  COMMENTARY_POWERPLAY, COMMENTARY_SUPER_OVER,
+    80→  CATCH_COMMENTARY_SUCCESS, CATCH_COMMENTARY_DROPPED,
+    81→  CELEBRATION_GIFS, MILESTONE_MESSAGES, MILESTONES,
+    82→  ECONOMY, MMR, COLORS, CRICKET_LEGENDS,
+    83→  MATCH_TURN_TIMEOUT, MATCH_INACTIVITY_TIMEOUT,
+    84→  grantEconomyRewards,
+    85→} = require('./handcricket');
+    86→const {
+    87→  getAcceptDeclineButtons, getTossButtons, getBatBowlButtons,
+    88→  getNumberButtons, getCatchActionButtons, getRematchButtons,
+    89→  getInningsReadyButton, getSuperOverButtons, getScoreQuitButtons,
+    90→} = require('./commands/handcricket');
+    91→const activeHCGames = new Map(); // channelId → HandCricketGame
+    92→const hcPlayerMap = new Map();  // userId → channelId (for DM routing)
+    93→const hcProfileManager = new ProfileManager(supabase);
+    94→const hcTournamentManager = new TournamentManager();
+    95→const hcLobbyManager = new LobbyManager();
+    96→
+    97→/* ═══════════════════════════════════════════
+    98→   🐺 Werewolf — Mafia Night/Day Phase Functions
+    99→   ═══════════════════════════════════════════ */
+   100→
+   101→/* ── Popcorn Shoot Timer ── */
+   102→
+   103→async function startPopcornShootTimer(game) {
+   104→  if (game.mode !== GAME_MODE.POPCORN || game.state === GAME_STATE.ENDED) return;
+   105→  if (game.shootTimer) { clearTimeout(game.shootTimer); game.shootTimer = null; }
+   106→
+   107→  const channel = game.channel;
+   108→  if (!channel) return;
+   109→
+   110→  const gunHolder = game.players.get(game.gunHolder);
+   111→  if (!gunHolder) return;
+   112→
+   113→  // Warning at 10 seconds before expiry
+   114→  const warningTime = Math.max(0, (game.shootTimerLength - 10) * 1000);
+   115→  let warningSent = false;
+   116→
+   117→  if (warningTime > 0) {
+   118→    game._shootWarningTimer = setTimeout(async () => {
+   119→      if (game.state === GAME_STATE.ENDED || game.gunHolder !== gunHolder.user.id) return;
+   120→      warningSent = true;
+   121→      try {
+   122→        await channel.send({ embeds: [new EmbedBuilder()
+   123→          .setColor(0xF39C12)
+   124→          .setTitle('⏰ Shoot Timer Warning!')
+   125→          .setDescription(`**${gunHolder.user.username}** has **10 seconds** left to shoot!\nUse \`w.shoot <number>\` now or you'll be eliminated!`)
+   126→          .setTimestamp()] });
+   127→      } catch (e) {}
+   128→    }, warningTime);
+   129→  }
+   130→
+   131→  // Main timer — gun holder is eliminated if they don't shoot in time
+   132→  game.shootTimer = setTimeout(async () => {
+   133→    if (game._shootWarningTimer) { clearTimeout(game._shootWarningTimer); game._shootWarningTimer = null; }
+   134→    if (game.state === GAME_STATE.ENDED) return;
+   135→    if (game.gunHolder !== gunHolder.user.id) return;  // gun already passed
+   136→
+   137→    // Gun holder didn't shoot — they are eliminated!
+   138→    gunHolder.alive = false;
+   139→
+   140→    const timeoutEmbed = new EmbedBuilder()
+   141→      .setColor(0xE74C3C)
+   142→      .setTitle('⏰ Time\'s Up!')
+   143→      .setDescription(
+   144→        `**${gunHolder.user.username}** ran out of time and is eliminated!\n` +
+   145→        `💀 **${gunHolder.user.username}** (${ROLE_EMOJI[gunHolder.role]} ${gunHolder.role}) couldn't pull the trigger!`
+   146→      )
+   147→      .setTimestamp();
+   148→    await channel.send({ embeds: [timeoutEmbed] });
+   149→
+   150→    // Check win after timeout elimination
+   151→    const winCheck = game.checkWin();
+   152→    if (winCheck) {
+   153→      const winEmbed = new EmbedBuilder()
+   154→        .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
+   155→        .setTitle(winCheck.winner === 'wolves' ? 'Wolves Win!' : 'Village Wins!')
+   156→        .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+   157→        .setFooter({ text: 'Game Over — Thanks for playing!' })
+   158→        .setTimestamp();
+   159→      await channel.send({ embeds: [winEmbed] });
+   160→      activeGames.delete(channel.id);
+   161→      return;
+   162→    }
+   163→
+   164→    // Pass gun to a random alive player
+   165→    const alivePlayers = game.getAlivePlayers();
+   166→    if (alivePlayers.length > 0) {
+   167→      const nextHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+   168→      game.gunHolder = nextHolder.user.id;
+   169→
+   170→      const passEmbed = new EmbedBuilder()
+   171→        .setColor(0xFFD700)
+   172→        .setTitle('🔫 Gun Passed!')
+   173→        .setDescription(
+   174→          `The gun passes to **${nextHolder.user.username}**!\n\n` +
+   175→          `Use \`w.shoot <number>\` to shoot!\n⏱️ **${game.shootTimerLength}s** on the clock!`
+   176→        )
+   177→        .setTimestamp();
+   178→      await channel.send({ embeds: [passEmbed] });
+   179→
+   180→      // Start new timer for the next gun holder
+   181→      await startPopcornShootTimer(game);
+   182→    }
+   183→  }, game.shootTimerLength * 1000);
+   184→}
+   185→
+   186→async function startMafiaNight(game) {
+   187→  game.startNight();
+   188→  const channel = game.channel;
+   189→  if (!channel) return;
+   190→
+   191→  const alivePlayers = game.getAlivePlayers();
+   192→  const playerList = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+   193→
+   194→  const nightEmbed = new EmbedBuilder()
+   195→    .setColor(0x1a1a2e)
+   196→    .setTitle(`Night ${game.round}`)
+   197→    .setDescription(
+   198→      `**Game**          Mafia\n**Day**           ${game.round}\n**Living**        ${alivePlayers.length} players\n\nThe mafia is choosing their victim...\nCheck your DMs for night actions!`
+   199→    )
+   200→    .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerList || 'None', inline: false })
+   201→    .setFooter({ text: `w.help • Night actions in DM • ${NIGHT_TIMER}s` })
+   202→    .setTimestamp();
+   203→  await channel.send({ embeds: [nightEmbed] });
+   204→
+   205→  // DM role-specific actions
+   206→  for (const [, player] of game.players) {
+   207→    if (!player.alive) continue;
+   208→    try {
+   209→      if (player.role === ROLE.WOLF) {
+   210→        const otherWolves = game.getAliveWolves().filter(w => w.user.id !== player.user.id);
+   211→        await player.user.send({
+   212→          embeds: [new EmbedBuilder()
+   213→            .setColor(0xE74C3C)
+   214→            .setTitle(`Night ${game.round} — Mafia Kill`)
+   215→            .setDescription(
+   216→              `Choose your victim!\n\nUse \`w.nk <number>\`\n\n${otherWolves.length > 0 ? `Mafia teammates: ${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('  ·  ')}` : 'You are the only mafia!'}\n\nAlive players:\n${playerList}`
+   217→            )
+   218→            .setFooter({ text: 'Keep your identity secret!' })
+   219→            .setTimestamp()]
+   220→        });
+   221→      } else if (player.role === ROLE.DOCTOR) {
+   222→        const saveHint = game.lastProtected ? `Cannot save <@${game.lastProtected}> again — pick someone else!` : 'First night — save anyone!';
+   223→        await player.user.send({
+   224→          embeds: [new EmbedBuilder()
+   225→            .setColor(0x3498DB)
+   226→            .setTitle(`Night ${game.round} — Doctor Save`)
+   227→            .setDescription(`Choose someone to protect!\n\nUse \`w.save <number>\`\n\n${saveHint}\n\nAlive players:\n${playerList}`)
+   228→            .setFooter({ text: 'One life saved is one battle won!' })
+   229→            .setTimestamp()]
+   230→        });
+   231→      } else if (player.role === ROLE.SEER) {
+   232→        const checkList = game.getAlivePlayers().filter(p => p.user.id !== player.user.id).map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+   233→        await player.user.send({
+   234→          embeds: [new EmbedBuilder()
+   235→            .setColor(0x9B59B6)
+   236→            .setTitle(`Night ${game.round} — Cop Investigate`)
+   237→            .setDescription(`Choose someone to investigate!\n\nUse \`w.check <number>\`\n\nOther alive players:\n${checkList}`)
+   238→            .setFooter({ text: 'Use your knowledge wisely!' })
+   239→            .setTimestamp()]
+   240→        });
+   241→      }
+   242→    } catch (err) {
+   243→      console.error(`Could not DM ${player.user.username}:`, err.message);
+   244→    }
+   245→  }
+   246→
+   247→  game.nightTimer = setTimeout(async () => {
+   248→    if (game.state !== GAME_STATE.NIGHT) return;
+   249→    const results = game.resolveNight();
+   250→    await startMafiaDay(game, results);
+   251→  }, NIGHT_TIMER * 1000);
+   252→}
+   253→
+   254→async function tryAutoResolveMafiaNight(game) {
+   255→  if (!game.allNightActionsDone()) return false;
+   256→  if (game.nightTimer) { clearTimeout(game.nightTimer); game.nightTimer = null; }
+   257→  const results = game.resolveNight();
+   258→  await startMafiaDay(game, results);
+   259→  return true;
+   260→}
+   261→
+   262→async function startMafiaDay(game, nightResults) {
+   263→  game.startDay();
+   264→  const channel = game.channel;
+   265→  if (!channel) return;
+   266→
+   267→  let dayDesc = '';
+   268→  if (nightResults.killed) {
+   269→    dayDesc = `**${nightResults.killed.user.username}** was killed by the mafia last night!\nThey were **${nightResults.killed.role}**.`;
+   270→  } else if (nightResults.saved) {
+   271→    dayDesc = 'Someone was attacked but the **doctor saved them**! No one died.';
+   272→  } else {
+   273→    dayDesc = 'A quiet night... no one was attacked.';
+   274→  }
+   275→
+   276→  const winCheck = game.checkWin();
+   277→  if (winCheck) {
+   278→    const winEmbed = new EmbedBuilder()
+   279→      .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
+   280→      .setTitle(winCheck.winner === 'wolves' ? 'Mafia Wins!' : 'Town Wins!')
+   281→      .setDescription(`${dayDesc}\n\n${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+   282→      .setTimestamp();
+   283→    await channel.send({ embeds: [winEmbed] });
+   284→    activeGames.delete(channel.id);
+   285→    return;
+   286→  }
+   287→
+   288→  const alivePlayers = game.getAlivePlayers();
+   289→  const playerList = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+   290→
+   291→  const dayEmbed = new EmbedBuilder()
+   292→    .setColor(0xFFD700)
+   293→    .setTitle(`Day ${game.round} — Vote!`)
+   294→    .setDescription(
+   295→      `**Game**          Mafia\n**Day**           ${game.round}\n**Living**        ${alivePlayers.length} players\n\n${dayDesc}\n\nUse \`w.vote <number>\` to vote\n\`w.unvote\` to remove • \`w.votecount\` to see`
+   296→    )
+   297→    .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerList || 'None', inline: false })
+   298→    .setFooter({ text: `${DAY_TIMER}s to vote!` })
+   299→    .setTimestamp();
+   300→  await channel.send({ embeds: [dayEmbed] });
+   301→
+   302→  game.dayTimer = setTimeout(async () => {
+   303→    if (game.state !== GAME_STATE.DAY) return;
+   304→    await resolveMafiaVote(game);
+   305→  }, DAY_TIMER * 1000);
+   306→}
+   307→
+   308→async function resolveMafiaVote(game) {
+   309→  if (game.state !== GAME_STATE.DAY) return;
+   310→  const channel = game.channel;
+   311→  if (!channel) return;
+   312→
+   313→  if (game.dayTimer) { clearTimeout(game.dayTimer); game.dayTimer = null; }
+   314→
+   315→  const tally = game.tallyVotes();
+   316→  const tallyEmbed = new EmbedBuilder()
+   317→    .setColor(0xFF69B4)
+   318→    .setTitle('Vote Results!')
+   319→    .setDescription(`${tally.message}${tally.detail ? '\n\n' + tally.detail : ''}`)
+   320→    .setTimestamp();
+   321→  await channel.send({ embeds: [tallyEmbed] });
+   322→
+   323→  const winCheck = game.checkWin();
+   324→  if (winCheck) {
+   325→    const winEmbed = new EmbedBuilder()
+   326→      .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
+   327→      .setTitle(winCheck.winner === 'wolves' ? 'Mafia Wins!' : 'Town Wins!')
+   328→      .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+   329→      .setTimestamp();
+   330→    await channel.send({ embeds: [winEmbed] });
+   331→    activeGames.delete(channel.id);
+   332→    return;
+   333→  }
+   334→
+   335→  game.round++;
+   336→  await startMafiaNight(game);
+   337→}
+   338→
+   339→/* ═══════════════════════════════════════════
+   340→   🏏 Hand Cricket — Match Timer & Auto-End
+   341→   ═══════════════════════════════════════════ */
+   342→
+   343→async function handleHCTurnTimeout(game) {
+   344→  if (game.phase !== HC_PHASE.PLAYING) return;
+   345→  const channel = game.channel;
+   346→  if (!channel) return;
+   347→
+   348→  const result = game.handleTurnTimeout();
+   349→  if (!result) return;
+   350→
+   351→  const timedOutName = client.users.cache.get(result.timedOutPlayer)?.username || 'Player';
+   352→  const batsmanName = client.users.cache.get(result.batsman)?.username || 'Batsman';
+   353→
+   354→  const timeoutEmbed = new EmbedBuilder()
+   355→    .setColor(0xF39C12)
+   356→    .setTitle('⏰ Turn Timeout!')
+   357→    .setDescription(
+   358→      `**${timedOutName}** took too long! Auto-OUT!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   359→      `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+   360→      `┗ 💀 ${batsmanName} loses a wicket due to timeout!`
+   361→    )
+   362→    .setTimestamp();
+   363→  await channel.send({ embeds: [timeoutEmbed] });
+   364→
+   365→  // Handle innings/game end
+   366→  if (result.inningsOver) {
+   367→    await handleHCInningsEnd(game, result);
+   368→  } else {
+   369→    // Restart turn timer
+   370→    game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+   371→  }
+   372→}
+   373→
+   374→async function handleHCInactivityTimeout(game) {
+   375→  if (game.phase === HC_PHASE.ENDED) return;
+   376→  const channel = game.channel;
+   377→  if (!channel) return;
+   378→
+   379→  const result = game.handleInactivityTimeout();
+   380→
+   381→  const endEmbed = new EmbedBuilder()
+   382→    .setColor(0xE74C3C)
+   383→    .setTitle('⏰ Game Ended — Inactivity!')
+   384→    .setDescription(
+   385→      `The game has been ended due to inactivity.\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   386→      `┣ 🏏 **${client.users.cache.get(game.players[0])?.username || 'Player 1'}**: ${result.p1Score.runs}/${result.p1Score.wickets}\n` +
+   387→      `┣ 🏏 **${client.users.cache.get(game.players[1])?.username || game.botProfile?.name || 'Player 2'}**: ${result.p2Score.runs}/${result.p2Score.wickets}\n` +
+   388→      `┗ ${result.winner ? `🏆 **${client.users.cache.get(result.winner)?.username}** wins by inactivity!` : '🤝 No winner — game abandoned!'}`
+   389→    )
+   390→    .setTimestamp();
+   391→  await channel.send({ embeds: [endEmbed] });
+   392→
+   393→  // Update profiles & clean up
+   394→  if (hcProfileManager) {
+   395→    for (const pid of game.players) {
+   396→      if (!pid.startsWith('BOT_')) {
+   397→        const summary = game.getGameSummary(pid);
+   398→        await hcProfileManager.updateProfile(pid, summary);
+   399→      }
+   400→    }
+   401→  }
+   402→
+   403→  // Grant economy rewards
+   404→  if (result.winner) {
+   405→    const rewards = game.calculateGameEconomy(result.winner);
+   406→    await grantEconomyRewards(supabase, rewards);
+   407→  }
+   408→
+   409→  activeHCGames.delete(game.channelId);
+   410→  hcPlayerMap.delete(game.players[0]);
+   411→  hcPlayerMap.delete(game.players[1]);
+   412→}
+   413→
+   414→async function handleHCInningsEnd(game, result) {
+   415→  const channel = game.channel;
+   416→  if (!channel) return;
+   417→
+   418→  if (result.nextPhase === 'innings_break') {
+   419→    const firstBatName = client.users.cache.get(game.battingFirst)?.username || 'Player';
+   420→    const nextBatName = client.users.cache.get(result.nextBatsman)?.username || 'Player';
+   421→    const nextBowlName = client.users.cache.get(result.nextBowler)?.username || 'Player';
+   422→
+   423→    const breakEmbed = new EmbedBuilder()
+   424→      .setColor(COLORS.WARNING)
+   425→      .setTitle('⏸️ Innings Break!')
+   426→      .setDescription(
+   427→        `${result.commentary || ''}\n\n**${firstBatName}** scored **${result.firstInningsScore}**\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   428→        `┣ 🎯 **Target:** ${result.target} runs\n` +
+   429→        `┣ 🏏 **${nextBatName}** is now batting!\n` +
+   430→        `┣ 🎯 **${nextBowlName}** is now bowling!\n` +
+   431→        `┗ 👇 Click **Ready** when both players are ready!`
+   432→      )
+   433→      .setFooter({ text: '🏏 2nd Innings — Click Ready when prepared!' })
+   434→      .setTimestamp();
+   435→    await channel.send({ embeds: [breakEmbed], components: [getInningsReadyButton(game.channelId)] });
+   436→  } else if (result.nextPhase === 'game_over') {
+   437→    await handleHCGameOver(game, result);
+   438→  }
+   439→}
+   440→
+   441→async function handleHCGameOver(game, result) {
+   442→  const channel = game.channel;
+   443→  if (!channel) return;
+   444→
+   445→  const p1Score = game.scores[game.players[0]];
+   446→  const p2Score = game.scores[game.players[1]];
+   447→  const p1Name = client.users.cache.get(game.players[0])?.username || 'Player 1';
+   448→  const p2Name = client.users.cache.get(game.players[1])?.username || game.botProfile?.name || 'Player 2';
+   449→
+   450→  // Grant economy rewards
+   451→  if (result.economyRewards) {
+   452→    await grantEconomyRewards(supabase, result.economyRewards);
+   453→  }
+   454→
+   455→  if (result.isTie) {
+   456→    const tieEmbed = new EmbedBuilder()
+   457→      .setColor(COLORS.WARNING)
+   458→      .setTitle('🤝 Match Tied!')
+   459→      .setDescription(
+   460→        `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   461→        `┣ 🏏 **${p1Name}**: ${p1Score.runs}/${p1Score.wickets} (${p1Score.fours}×4, ${p1Score.sixes}×6)\n` +
+   462→        `┣ 🏏 **${p2Name}**: ${p2Score.runs}/${p2Score.wickets} (${p2Score.fours}×4, ${p2Score.sixes}×6)\n` +
+   463→        `┗ 🤝 Neither team could be separated!`
+   464→      )
+   465→      .setFooter({ text: '🏏 Tied! Want a Super Over?' })
+   466→      .setTimestamp();
+   467→    await channel.send({ embeds: [tieEmbed], components: [getSuperOverButtons(game.channelId)] });
+   468→  } else {
+   469→    const winnerName = result.winner ? (client.users.cache.get(result.winner)?.username || game.botProfile?.name || 'Player') : 'Nobody';
+   470→    const loserName = result.loser ? (client.users.cache.get(result.loser)?.username || game.botProfile?.name || 'Player') : 'Nobody';
+   471→    const runDiff = Math.abs(p1Score.runs - p2Score.runs);
+   472→    const wicketDiff = result.winner === game.players[0]
+   473→      ? `${game.maxWickets - p2Score.wickets} wicket${game.maxWickets - p2Score.wickets !== 1 ? 's' : ''}`
+   474→      : `${game.maxWickets - p1Score.wickets} wicket${game.maxWickets - p1Score.wickets !== 1 ? 's' : ''}`;
+   475→
+   476→    // Show economy rewards
+   477→    let rewardStr = '';
+   478→    if (result.economyRewards) {
+   479→      for (const [pid, amount] of Object.entries(result.economyRewards)) {
+   480→        if (pid.startsWith('BOT_') || amount <= 0) continue;
+   481→        const name = client.users.cache.get(pid)?.username || 'Player';
+   482→        rewardStr += `┣ 💰 **${name}**: +₹${amount}\n`;
+   483→      }
+   484→    }
+   485→
+   486→    // Send match win GIF
+   487→    const winGif = CELEBRATION_GIFS.matchWin[Math.floor(Math.random() * CELEBRATION_GIFS.matchWin.length)];
+   488→    const winEmbed = new EmbedBuilder()
+   489→      .setColor(COLORS.GOLD)
+   490→      .setTitle('🏆 Game Over!')
+   491→      .setDescription(
+   492→        `${result.commentary || ''}\n\n**${winnerName}** wins!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   493→        `┣ 🏏 **${p1Name}**: ${p1Score.runs}/${p1Score.wickets} (${p1Score.fours}×4, ${p1Score.sixes}×6)\n` +
+   494→        `┣ 🏏 **${p2Name}**: ${p2Score.runs}/${p2Score.wickets} (${p2Score.fours}×4, ${p2Score.sixes}×6)\n` +
+   495→        `┣ 🎉 **${winnerName}** won by ${runDiff} run${runDiff !== 1 ? 's' : ''}!\n` +
+   496→        `${rewardStr}┗ 🏏 GG Well Played!`
+   497→      )
+   498→      .setImage(winGif)
+   499→      .setFooter({ text: '🏏 GG! Want a rematch?' })
+   500→      .setTimestamp();
+   501→    await channel.send({ embeds: [winEmbed] });
+   502→  }
+   503→
+   504→  // Update profiles
+   505→  if (hcProfileManager) {
+   506→    for (const pid of game.players) {
+   507→      if (!pid.startsWith('BOT_')) {
+   508→        const summary = game.getGameSummary(pid);
+   509→        await hcProfileManager.updateProfile(pid, summary);
+   510→      }
+   511→    }
+   512→  }
+   513→
+   514→  activeHCGames.delete(game.channelId);
+   515→  hcPlayerMap.delete(game.players[0]);
+   516→  hcPlayerMap.delete(game.players[1]);
+   517→}
+   518→
+   519→/* ── AFK Helpers ── */
+   520→
+   521→function getAfkNickname(currentNickname, username) {
+   522→  const base = currentNickname || username;
+   523→  const clean = base.replace(/^\[AFK\]\s*/, '');
+   524→  return `[AFK] ${clean}`;
+   525→}
+   526→function getNormalNickname(currentNickname, username) {
+   527→  const base = currentNickname || username;
+   528→  return base.replace(/^\[AFK\]\s*/, '') || username;
+   529→}
+   530→
+   531→const AFK_ROLE_NAME = 'AFK';
+   532→async function getAfkRole(guild) {
+   533→  let role = guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+   534→  if (!role) {
+   535→    try {
+   536→      role = await guild.roles.create({
+   537→        name: AFK_ROLE_NAME, color: 0x808080, hoist: true, mentionable: false,
+   538→        reason: 'Auto-created AFK role for Sweetheart Bot',
+   539→      });
+   540→      console.log(`✅ Created AFK role in ${guild.name}`);
+   541→    } catch (err) { console.error('Could not create AFK role:', err.message); return null; }
+   542→  }
+   543→  return role;
+   544→}
+   545→
+   546→/* ═══════════════════════════════════════════
+   547→   🤖  Client Setup
+   548→   ═══════════════════════════════════════════ */
+   549→
+   550→const client = new Client({
+   551→  intents: [
+   552→    GatewayIntentBits.Guilds,
+   553→    GatewayIntentBits.GuildMembers,
+   554→    GatewayIntentBits.GuildMessages,
+   555→    GatewayIntentBits.MessageContent,
+   556→    GatewayIntentBits.DirectMessages,      // Required for Werewolf DM actions (Hand Cricket now uses channel buttons)
+   557→    GatewayIntentBits.DirectMessageReactions,
+   558→    // GatewayIntentBits.GuildVoiceStates,  // Not needed — music removed
+   559→  ],
+   560→  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+   561→});
+   562→
+   563→client.commands = new Collection();
+   564→const mentionCooldowns = new Map();
+   565→const afkCache = new Map(); // In-memory AFK cache: key = 'guildId-userId'
+   566→client.afkCache = afkCache;
+   567→let afkDbAvailable = true; // Flag to stop querying if table is missing
+   568→const AFK_MENTION_COOLDOWN = 30_000;
+   569→
+   570→// Load slash commands
+   571→const cmdPath = path.join(__dirname, 'commands');
+   572→for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
+   573→  const cmd = require(`./commands/${file}`);
+   574→  if ('data' in cmd && 'execute' in cmd) {
+   575→    client.commands.set(cmd.data.name, cmd);
+   576→    console.log(`📁 Loaded command: /${cmd.data.name}`);
+   577→  }
+   578→}
+   579→
+   580→// Initialize handcricket slash command with shared state
+   581→const hcSlashCmd = client.commands.get('handcricket');
+   582→if (hcSlashCmd && hcSlashCmd.init) {
+   583→  hcSlashCmd.init(activeHCGames, hcPlayerMap, hcProfileManager, supabase, hcTournamentManager, hcLobbyManager);
+   584→  console.log('🏏 Hand Cricket slash commands initialized!');
+   585→}
+   586→
+   587→client.snipes = new Map();
+   588→client.mimicLog = new Map();
+   589→client.mimicAccess = new Map();
+   590→client.mimicLogAccess = new Map();
+   591→client.mimicProtected = new Map();
+   592→client.mimicLogChannel = new Map();
+   593→client.afkBreakProtected = new Map();
+   594→client.shutUsers = new Map(); // guildId -> Set of userIds whose messages get auto-deleted
+   595→
+   596→/* ═══════════════════════════════════════════
+   597→   🟢  Ready + Auto-Register Slash Commands
+   598→   ═══════════════════════════════════════════ */
+   599→
+   600→client.once(Events.ClientReady, async () => {
+   601→  console.log(`💖 ${client.user.tag} is online and spreading love!`);
+   602→  console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
+   603→  client.user.setActivity('🩸 Dracula\'s Queen 👑');
+   604→
+   605→  // Load AFK break protected users from Supabase
+   606→  if (supabase) {
+   607→    try {
+   608→      const { data: protData, error: protErr } = await supabase
+   609→        .from('afk_break_protected')
+   610→        .select('guild_id, user_id');
+   611→      if (!protErr && protData) {
+   612→        for (const row of protData) {
+   613→          if (!client.afkBreakProtected.has(row.guild_id)) client.afkBreakProtected.set(row.guild_id, new Set());
+   614→          client.afkBreakProtected.get(row.guild_id).add(row.user_id);
+   615→        }
+   616→        console.log(`✅ Loaded ${protData.length} AFK break protected user(s) from DB`);
+   617→      }
+   618→    } catch (err) {
+   619→      console.error('Failed to load afk_break_protected:', err.message);
+   620→    }
+   621→
+   622→    // Load mimic log channel config
+   623→    try {
+   624→      const { data: mlData, error: mlErr } = await supabase
+   625→        .from('mimic_log_channel')
+   626→        .select('guild_id, channel_id');
+   627→      if (!mlErr && mlData) {
+   628→        for (const row of mlData) {
+   629→          client.mimicLogChannel.set(row.guild_id, row.channel_id);
+   630→        }
+   631→        console.log(`✅ Loaded ${mlData.length} mimic log channel(s) from DB`);
+   632→      }
+   633→    } catch (err) {
+   634→      console.error('Failed to load mimic_log_channel:', err.message);
+   635→    }
+   636→
+   637→    // Load mimic access from DB (persistent across restarts)
+   638→    try {
+   639→      const { data: maData, error: maErr } = await supabase
+   640→        .from('mimic_access')
+   641→        .select('guild_id, user_id, username');
+   642→      if (maErr) {
+   643→        console.error('❌ Failed to load mimic_access:', maErr.message);
+   644→      } else if (maData) {
+   645→        for (const row of maData) {
+   646→          if (!client.mimicAccess) client.mimicAccess = new Map();
+   647→          if (!client.mimicAccess.has(row.guild_id)) client.mimicAccess.set(row.guild_id, new Set());
+   648→          client.mimicAccess.get(row.guild_id).add(row.user_id);
+   649→        }
+   650→        console.log(`✅ Loaded ${maData.length} mimic access user(s) from DB`);
+   651→      }
+   652→    } catch (err) {
+   653→      console.error('Failed to load mimic_access:', err.message);
+   654→    }
+   655→
+   656→    // Load AFK break access from DB (persistent across restarts)
+   657→    try {
+   658→      const { data: abaData, error: abaErr } = await supabase
+   659→        .from('afk_break_access')
+   660→        .select('guild_id, allowed_user_id');
+   661→      if (!abaErr && abaData) {
+   662→        for (const row of abaData) {
+   663→          if (!client.afkBreakAccess) client.afkBreakAccess = new Map();
+   664→          if (!client.afkBreakAccess.has(row.guild_id)) client.afkBreakAccess.set(row.guild_id, new Set());
+   665→          client.afkBreakAccess.get(row.guild_id).add(row.allowed_user_id);
+   666→        }
+   667→        console.log(`✅ Loaded ${abaData.length} AFK break access user(s) from DB`);
+   668→      }
+   669→    } catch (err) {
+   670→      console.error('Failed to load afk_break_access:', err.message);
+   671→    }
+   672→
+   673→    // Load mimic protected from DB (persistent across restarts)
+   674→    try {
+   675→      const { data: mpData, error: mpErr } = await supabase
+   676→        .from('mimic_protected')
+   677→        .select('guild_id, user_id');
+   678→      if (!mpErr && mpData) {
+   679→        for (const row of mpData) {
+   680→          if (!client.mimicProtected) client.mimicProtected = new Map();
+   681→          if (!client.mimicProtected.has(row.guild_id)) client.mimicProtected.set(row.guild_id, new Set());
+   682→          client.mimicProtected.get(row.guild_id).add(row.user_id);
+   683→        }
+   684→        console.log(`✅ Loaded ${mpData.length} mimic protected user(s) from DB`);
+   685→      }
+   686→    } catch (err) {
+   687→      console.error('Failed to load mimic_protected:', err.message);
+   688→    }
+   689→  }
+   690→
+   691→  if (!process.env.CLIENT_ID) {
+   692→    console.error('⚠️  CLIENT_ID not set — slash commands will NOT be registered!');
+   693→    return;
+   694→  }
+   695→
+   696→  const commands = [];
+   697→  for (const [, cmd] of client.commands) commands.push(cmd.data.toJSON());
+   698→
+   699→  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+   700→  try {
+   701→    if (process.env.GUILD_ID) {
+   702→      console.log(`🔄 Registering ${commands.length} guild slash command(s)...`);
+   703→      await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
+   704→      console.log('✅ Guild slash commands registered!');
+   705→    } else {
+   706→      console.log(`🔄 Registering ${commands.length} global slash command(s)...`);
+   707→      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+   708→      console.log('✅ Global slash commands registered!');
+   709→    }
+   710→  } catch (error) {
+   711→    console.error('❌ Slash command registration failed:', error.message);
+   712→  }
+   713→
+   714→});
+   715→
+   716→/* ═══════════════════════════════════════════
+   717→   ⚡  Interaction Handler (Slash Commands + Buttons)
+   718→   ═══════════════════════════════════════════ */
+   719→
+   720→client.on('interactionCreate', async (interaction) => {
+   721→  /* ── Slash Commands ── */
+   722→  if (interaction.isChatInputCommand()) {
+   723→    const command = client.commands.get(interaction.commandName);
+   724→    if (!command) return;
+   725→    try {
+   726→      await command.execute(interaction);
+   727→    } catch (error) {
+   728→      console.error('Command error:', error);
+   729→      const reply = { content: '💔 Something went wrong, sweetheart!', flags: MessageFlags.Ephemeral };
+   730→      interaction.replied || interaction.deferred
+   731→        ? await interaction.followUp(reply)
+   732→        : await interaction.reply(reply);
+   733→    }
+   734→    return;
+   735→  }
+   736→
+   737→  /* ── Button Interactions ── */
+   738→  if (interaction.isButton()) {
+   739→    const customId = interaction.customId;
+   740→
+   741→    /* ── 🏏 Hand Cricket Buttons ── */
+   742→    if (!customId.startsWith('hc_')) return;
+   743→
+   744→    try {
+   745→      await handleHCButton(interaction, customId);
+   746→    } catch (error) {
+   747→      console.error('Button handler error:', error);
+   748→      try {
+   749→        const reply = { content: '💔 Button error!', flags: MessageFlags.Ephemeral };
+   750→        interaction.replied || interaction.deferred
+   751→          ? await interaction.followUp(reply)
+   752→          : await interaction.reply(reply);
+   753→      } catch (e) {}
+   754→    }
+   755→    return;
+   756→  }
+   757→});
+   758→
+   759→/* ═══════════════════════════════════════════
+   760→   🏏 Hand Cricket — Button Handler
+   761→   ═══════════════════════════════════════════ */
+   762→
+   763→async function handleHCButton(interaction, customId) {
+   764→  const parts = customId.split('_');
+   765→  // Format: hc_<action>_<channelId>
+   766→  const actionCode = parts[1];
+   767→  const channelId = parts.slice(2).join('_');
+   768→  const userId = interaction.user.id;
+   769→
+   770→  /* ── Accept Challenge ── */
+   771→  if (actionCode === 'a') {
+   772→    const game = activeHCGames.get(channelId);
+   773→    if (!game || game.phase !== HC_PHASE.WAITING) {
+   774→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No pending challenge!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   775→    }
+   776→    if (userId !== game.player2Id) {
+   777→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Only the challenged player can accept!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   778→    }
+   779→
+   780→    game.accept();
+   781→
+   782→    const acceptEmbed = new EmbedBuilder()
+   783→      .setColor(COLORS.SUCCESS)
+   784→      .setTitle('🏏 Challenge Accepted!')
+   785→      .setDescription(
+   786→        `Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   787→        `┣ 🪙 **Toss Time!**\n` +
+   788→        `┣ 👇 Both players: Click **Odd** or **Even**!\n` +
+   789→        `┗ Your choices are secret — confirmed via ephemeral!`
+   790→      )
+   791→      .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
+   792→      .setTimestamp();
+   793→    await interaction.update({ embeds: [acceptEmbed], components: [getTossButtons(channelId, false)] });
+   794→    return;
+   795→  }
+   796→
+   797→  /* ── Decline Challenge ── */
+   798→  if (actionCode === 'd') {
+   799→    const game = activeHCGames.get(channelId);
+   800→    if (!game || game.phase !== HC_PHASE.WAITING) {
+   801→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No pending challenge!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   802→    }
+   803→    if (userId !== game.player2Id) {
+   804→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Only the challenged player can decline!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   805→    }
+   806→
+   807→    game.decline();
+   808→    activeHCGames.delete(channelId);
+   809→    hcPlayerMap.delete(game.players[0]);
+   810→    hcPlayerMap.delete(game.players[1]);
+   811→
+   812→    const declineEmbed = new EmbedBuilder()
+   813→      .setColor(COLORS.DANGER)
+   814→      .setTitle('❌ Challenge Declined!')
+   815→      .setDescription(`**${interaction.user.username}** declined the challenge.`)
+   816→      .setTimestamp();
+   817→    return interaction.update({ embeds: [declineEmbed], components: [] });
+   818→  }
+   819→
+   820→  /* ── Toss: Heads ── */
+   821→  if (actionCode === 'th') {
+   822→    const game = activeHCGames.get(channelId);
+   823→    if (!game || game.phase !== HC_PHASE.TOSS) {
+   824→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No active toss!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   825→    }
+   826→    if (!game.isBotGame) {
+   827→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Use Odd/Even for multiplayer!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   828→    }
+   829→
+   830→    const result = game.coinTossChoice(userId, 'heads');
+   831→    if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+   832→
+   833→    const tossEmbed = new EmbedBuilder()
+   834→      .setColor(result.playerWon ? COLORS.SUCCESS : COLORS.DANGER)
+   835→      .setTitle('🪙 Coin Toss Result!')
+   836→      .setDescription(
+   837→        `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   838→        `┣ 🪙 **Coin:** ${result.coinResult === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+   839→        `┣ 🎯 **You chose:** Heads\n` +
+   840→        `┗ ${result.playerWon ? '🏆 **You won the toss!**' : '😢 **You lost the toss!**'}\n\n${result.playerWon ? '👇 Click **Bat** or **Bowl**!' : 'Bot is choosing...'}`
+   841→      )
+   842→      .setTimestamp();
+   843→    await interaction.update({ embeds: [tossEmbed], components: result.playerWon ? [getBatBowlButtons(channelId)] : [] });
+   844→
+   845→    if (!result.playerWon) {
+   846→      const botChoice = game.botChooseBatBowl();
+   847→      const botChose = botChoice.battingFirst === game.player2Id ? 'bat' : 'bowl';
+   848→      const playerRole = botChose === 'bat' ? 'bowl' : 'bat';
+   849→
+   850→      const botChoiceEmbed = new EmbedBuilder()
+   851→        .setColor(COLORS.WARNING)
+   852→        .setTitle('🤖 Bot chose to ' + botChose + '!')
+   853→        .setDescription(
+   854→          `━━━━━━━━━━━━━━━━━━━\n` +
+   855→          `┣ 🤖 **${game.botProfile.name}**: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
+   856→          `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
+   857→          `┗ 👇 Click a number button below to play!`
+   858→        )
+   859→        .setFooter({ text: '🏏 Match Started!' })
+   860→        .setTimestamp();
+   861→      await interaction.channel.send({ embeds: [botChoiceEmbed] });
+   862→
+   863→      game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+   864→
+   865→      // Send number buttons in the channel
+   866→      const matchStartEmbed = new EmbedBuilder()
+   867→        .setColor(COLORS.SUCCESS)
+   868→        .setTitle('🏏 Match Started!')
+   869→        .setDescription(
+   870→          `You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\n` +
+   871→          `👇 Click a number button below to play!\n` +
+   872→          `⏱️ **${MATCH_TURN_TIMEOUT}s** per ball!`
+   873→        )
+   874→        .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
+   875→        .setTimestamp();
+   876→      await interaction.channel.send({ embeds: [matchStartEmbed], components: getNumberButtons(channelId) });
+   877→    }
+   878→    return;
+   879→  }
+   880→
+   881→  /* ── Toss: Tails ── */
+   882→  if (actionCode === 'tt') {
+   883→    const game = activeHCGames.get(channelId);
+   884→    if (!game || game.phase !== HC_PHASE.TOSS) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No active toss!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   885→    if (!game.isBotGame) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Use Odd/Even for multiplayer!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   886→
+   887→    const result = game.coinTossChoice(userId, 'tails');
+   888→    if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+   889→
+   890→    const tossEmbed = new EmbedBuilder()
+   891→      .setColor(result.playerWon ? COLORS.SUCCESS : COLORS.DANGER)
+   892→      .setTitle('🪙 Coin Toss Result!')
+   893→      .setDescription(
+   894→        `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+   895→        `┣ 🪙 **Coin:** ${result.coinResult === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+   896→        `┣ 🎯 **You chose:** Tails\n` +
+   897→        `┗ ${result.playerWon ? '🏆 **You won the toss!**' : '😢 **You lost the toss!**'}\n\n${result.playerWon ? '👇 Click **Bat** or **Bowl**!' : 'Bot is choosing...'}`
+   898→      )
+   899→      .setTimestamp();
+   900→    await interaction.update({ embeds: [tossEmbed], components: result.playerWon ? [getBatBowlButtons(channelId)] : [] });
+   901→
+   902→    if (!result.playerWon) {
+   903→      const botChoice = game.botChooseBatBowl();
+   904→      const botChose = botChoice.battingFirst === game.player2Id ? 'bat' : 'bowl';
+   905→      const playerRole = botChose === 'bat' ? 'bowl' : 'bat';
+   906→
+   907→      const botChoiceEmbed = new EmbedBuilder()
+   908→        .setColor(COLORS.WARNING)
+   909→        .setTitle('🤖 Bot chose to ' + botChose + '!')
+   910→        .setDescription(
+   911→          `━━━━━━━━━━━━━━━━━━━\n` +
+   912→          `┣ 🤖 **${game.botProfile.name}**: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
+   913→          `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
+   914→          `┗ 👇 Click a number button below to play!`
+   915→        )
+   916→        .setFooter({ text: '🏏 Match Started!' })
+   917→        .setTimestamp();
+   918→      await interaction.channel.send({ embeds: [botChoiceEmbed] });
+   919→
+   920→      game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+   921→
+   922→      // Send number buttons in the channel
+   923→      const matchStartEmbed = new EmbedBuilder()
+   924→        .setColor(COLORS.SUCCESS)
+   925→        .setTitle('🏏 Match Started!')
+   926→        .setDescription(
+   927→          `You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\n` +
+   928→          `👇 Click a number button below to play!\n` +
+   929→          `⏱️ **${MATCH_TURN_TIMEOUT}s** per ball!`
+   930→        )
+   931→        .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
+   932→        .setTimestamp();
+   933→      await interaction.channel.send({ embeds: [matchStartEmbed], components: getNumberButtons(channelId) });
+   934→    }
+   935→    return;
+   936→  }
+   937→
+   938→  /* ── Toss: Odd ── */
+   939→  if (actionCode === 'to') {
+   940→    const game = activeHCGames.get(channelId);
+   941→    if (!game || game.phase !== HC_PHASE.TOSS) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No active toss!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   942→
+   943→    const result = game.setTossChoice(userId, 'odd');
+   944→    if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+   945→
+   946→    if (result.message === 'waiting') {
+   947→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🪙 Toss Choice Recorded!').setDescription('You chose **Odd**!\nWaiting for opponent...').setTimestamp()], flags: MessageFlags.Ephemeral });
+   948→    }
+   949→
+   950→    if (result.message === 'both_chosen') {
+   951→      const p1Name = client.users.cache.get(game.players[0])?.username || 'Player 1';
+   952→      const p2Name = client.users.cache.get(game.players[1])?.username || 'Player 2';
+   953→
+   954→      const tossReadyEmbed = new EmbedBuilder()
+   955→        .setColor(COLORS.GOLD)
+   956→        .setTitle('🪙 Toss — Both Chosen!')
+   957→        .setDescription(
+   958→          `━━━━━━━━━━━━━━━━━━━\n` +
+   959→          `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+   960→          `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+   961→          `┗ 👇 **Click a number (1-6) below!**`
+   962→        )
+   963→        .setFooter({ text: '🏏 No DM needed — click below!' })
+   964→        .setTimestamp();
+   965→      await interaction.update({ embeds: [tossReadyEmbed], components: [] });
+   966→
+   967→      // Send number buttons in the channel
+   968→      const tossNumberEmbed = new EmbedBuilder()
+   969→        .setColor(COLORS.GOLD)
+   970→        .setTitle('🪙 Toss — Choose Your Number!')
+   971→        .setDescription(
+   972→          `Both players have chosen Odd/Even!\n\n` +
+   973→          `👇 Each player: Click a number **1-6** below!\n` +
+   974→          `Your choice is **secret** — only you can see your confirmation!`
+   975→        )
+   976→        .setFooter({ text: '🏏 No DM needed — click below!' })
+   977→        .setTimestamp();
+   978→      await interaction.channel.send({ embeds: [tossNumberEmbed], components: getNumberButtons(channelId) });
+   979→      return;
+   980→    }
+   981→    return;
+   982→  }
+   983→
+   984→  /* ── Toss: Even ── */
+   985→  if (actionCode === 'te') {
+   986→    const game = activeHCGames.get(channelId);
+   987→    if (!game || game.phase !== HC_PHASE.TOSS) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No active toss!').setTimestamp()], flags: MessageFlags.Ephemeral });
+   988→
+   989→    const result = game.setTossChoice(userId, 'even');
+   990→    if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+   991→
+   992→    if (result.message === 'waiting') {
+   993→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🪙 Toss Choice Recorded!').setDescription('You chose **Even**!\nWaiting for opponent...').setTimestamp()], flags: MessageFlags.Ephemeral });
+   994→    }
+   995→
+   996→    if (result.message === 'both_chosen') {
+   997→      const p1Name = client.users.cache.get(game.players[0])?.username || 'Player 1';
+   998→      const p2Name = client.users.cache.get(game.players[1])?.username || 'Player 2';
+   999→
+  1000→      const tossReadyEmbed = new EmbedBuilder()
+  1001→        .setColor(COLORS.GOLD)
+  1002→        .setTitle('🪙 Toss — Both Chosen!')
+  1003→        .setDescription(
+  1004→          `━━━━━━━━━━━━━━━━━━━\n` +
+  1005→          `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+  1006→          `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+  1007→          `┗ 👇 **Click a number (1-6) below!**`
+  1008→        )
+  1009→        .setFooter({ text: '🏏 No DM needed — click below!' })
+  1010→        .setTimestamp();
+  1011→      await interaction.update({ embeds: [tossReadyEmbed], components: [] });
+  1012→
+  1013→      // Send number buttons in the channel
+  1014→      const tossNumberEmbed = new EmbedBuilder()
+  1015→        .setColor(COLORS.GOLD)
+  1016→        .setTitle('🪙 Toss — Choose Your Number!')
+  1017→        .setDescription(
+  1018→          `Both players have chosen Odd/Even!\n\n` +
+  1019→          `👇 Each player: Click a number **1-6** below!\n` +
+  1020→          `Your choice is **secret** — only you can see your confirmation!`
+  1021→        )
+  1022→        .setFooter({ text: '🏏 No DM needed — click below!' })
+  1023→        .setTimestamp();
+  1024→      await interaction.channel.send({ embeds: [tossNumberEmbed], components: getNumberButtons(channelId) });
+  1025→      return;
+  1026→    }
+  1027→    return;
+  1028→  }
+  1029→
+  1030→  /* ── Choose: Bat ── */
+  1031→  if (actionCode === 'cb') {
+  1032→    const game = activeHCGames.get(channelId);
+  1033→    if (!game || game.phase !== HC_PHASE.TOSS_CHOICE) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Not in toss choice phase!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1034→
+  1035→    const result = game.chooseBatBowl(userId, 'bat');
+  1036→    if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1037→
+  1038→    await sendMatchStartMessage(interaction, game, 'bat');
+  1039→    return;
+  1040→  }
+  1041→
+  1042→  /* ── Choose: Bowl ── */
+  1043→  if (actionCode === 'cl') {
+  1044→    const game = activeHCGames.get(channelId);
+  1045→    if (!game || game.phase !== HC_PHASE.TOSS_CHOICE) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Not in toss choice phase!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1046→
+  1047→    const result = game.chooseBatBowl(userId, 'bowl');
+  1048→    if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1049→
+  1050→    await sendMatchStartMessage(interaction, game, 'bowl');
+  1051→    return;
+  1052→  }
+  1053→
+  1054→  /* ── Number Selection: 1-6 (via channel buttons) ── */
+  1055→  if (actionCode.startsWith('n') && actionCode.length === 2) {
+  1056→    const num = parseInt(actionCode[1]);
+  1057→    if (isNaN(num) || num < 1 || num > 6) return;
+  1058→
+  1059→    const game = activeHCGames.get(channelId);
+  1060→    if (!game) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No active game!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1061→
+  1062→    // Toss number selection
+  1063→    if (game.phase === HC_PHASE.TOSS) {
+  1064→      const result = game.submitTossNumber(userId, num);
+  1065→      if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1066→
+  1067→      if (result.message === 'waiting_for_opponent') {
+  1068→        return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Toss Number Recorded!').setDescription(`You chose **${num}**!\nWaiting for opponent...`).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1069→      }
+  1070→
+  1071→      if (result.message === 'toss_resolved') {
+  1072→        const channel = game.channel;
+  1073→        if (!channel) return;
+  1074→
+  1075→        const p1Name = client.users.cache.get(game.players[0])?.username || 'Player 1';
+  1076→        const p2Name = client.users.cache.get(game.players[1])?.username || game.botProfile?.name || 'Player 2';
+  1077→
+  1078→        const tossEmbed = new EmbedBuilder()
+  1079→          .setColor(COLORS.GOLD)
+  1080→          .setTitle('🪙 Toss Result!')
+  1081→          .setDescription(
+  1082→            `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1083→            `┣ 🎲 **${p1Name}**: ${EMOJI_NUMBERS[result.p1Num - 1]}\n` +
+  1084→            `┣ 🎲 **${p2Name}**: ${EMOJI_NUMBERS[result.p2Num - 1]}\n` +
+  1085→            `┣ ➕ **Sum:** ${result.sum} (${result.result})\n` +
+  1086→            `┗ 🏆 **Toss Winner:** <@${result.winner}>!`
+  1087→          )
+  1088→          .setFooter({ text: '🏏 Toss winner: Click Bat or Bowl!' })
+  1089→          .setTimestamp();
+  1090→        await channel.send({ embeds: [tossEmbed], components: [getBatBowlButtons(channelId)] });
+  1091→
+  1092→        await interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🪙 Toss Resolved!').setDescription(`You chose ${num}. Toss result posted in channel!`).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1093→        return;
+  1094→      }
+  1095→      return;
+  1096→    }
+  1097→
+  1098→    // Game play number selection
+  1099→    if (game.phase === HC_PHASE.PLAYING) {
+  1100→      if (userId !== game.battingNow && userId !== game.bowlingNow) {
+  1101→        return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 It\'s not your turn!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1102→      }
+  1103→
+  1104→      const isBatting = userId === game.battingNow;
+  1105→      const result = game.submitPlayNumber(userId, num);
+  1106→      if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1107→
+  1108→      if (result.message === 'waiting_for_opponent') {
+  1109→        // Ephemeral confirmation — opponent can see the channel buttons
+  1110→        return interaction.reply({ 
+  1111→          embeds: [new EmbedBuilder().setColor(COLORS.ACCENT)
+  1112→            .setTitle('✅ Number Recorded!')
+  1113→            .setDescription(`You chose **${num}**! (${isBatting ? '🏏 Batting' : '🎯 Bowling'})\nWaiting for opponent...`)
+  1114→            .setTimestamp()], 
+  1115→          flags: MessageFlags.Ephemeral 
+  1116→        });
+  1117→      }
+  1118→
+  1119→      // Ball resolved!
+  1120→      await handleBallResult(interaction, game, result);
+  1121→      return;
+  1122→    }
+  1123→
+  1124→    return;
+  1125→  }
+  1126→
+  1127→  /* ── Catch Action: Dive ── */
+  1128→  if (actionCode === 'cd') {
+  1129→    const game = activeHCGames.get(channelId);
+  1130→    if (!game || !game.catchActionPending) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No catch pending!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1131→    if (userId !== game.bowlingNow) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Only the bowler can catch!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1132→
+  1133→    const result = game.resolveCatchAfterAction('dive');
+  1134→    if (!result) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('❌ Catch resolve failed!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1135→
+  1136→    // Post catch result in channel
+  1137→    await sendCatchResultToChannel(interaction, game, result);
+  1138→    return;
+  1139→  }
+  1140→
+  1141→  /* ── Catch Action: Safe ── */
+  1142→  if (actionCode === 'cs') {
+  1143→    const game = activeHCGames.get(channelId);
+  1144→    if (!game || !game.catchActionPending) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No catch pending!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1145→    if (userId !== game.bowlingNow) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Only the bowler can catch!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1146→
+  1147→    const result = game.resolveCatchAfterAction('safe');
+  1148→    if (!result) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('❌ Catch resolve failed!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1149→
+  1150→    await sendCatchResultToChannel(interaction, game, result);
+  1151→    return;
+  1152→  }
+  1153→
+  1154→  /* ── Score Button ── */
+  1155→  if (actionCode === 'sc') {
+  1156→    const game = activeHCGames.get(channelId);
+  1157→    if (!game) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No game!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1158→
+  1159→    const playerNames = {};
+  1160→    for (const pid of game.players) {
+  1161→      playerNames[pid] = client.users.cache.get(pid)?.username || (pid.startsWith('BOT_') ? game.botProfile?.name || '🤖 Bot' : 'Player');
+  1162→    }
+  1163→
+  1164→    const sc = game.getFormattedScorecard(playerNames);
+  1165→    const remaining = game.getRemainingBalls();
+  1166→    let desc = `━━━━━━━━━━━━━━━━━━━\n┣ 🏏 **${sc.p1Name}**: ${sc.p1Score}\n┣ 🏏 **${sc.p2Name}**: ${sc.p2Score}\n`;
+  1167→    if (sc.target) desc += `┣ 🎯 **Target:** ${sc.target} | **Need:** ${sc.need}\n`;
+  1168→    if (remaining) desc += `┣ ⏱️ **Balls Left:** ${remaining.ballsLeft}\n`;
+  1169→    if (game.isPowerplayActive) desc += `┣ ⚡ **POWERPLAY!**\n`;
+  1170→    desc += `┗ 🏏 Innings ${sc.innings}/2`;
+  1171→
+  1172→    return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Scoreboard').setDescription(desc).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1173→  }
+  1174→
+  1175→  /* ── Quit Button ── */
+  1176→  if (actionCode === 'qt') {
+  1177→    const hcChannelId = hcPlayerMap.get(userId) || channelId;
+  1178→    const game = activeHCGames.get(hcChannelId);
+  1179→    if (!game) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No game!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1180→
+  1181→    const result = game.quit(userId);
+  1182→    const winnerName = result.winner ? client.users.cache.get(result.winner)?.username : null;
+  1183→    activeHCGames.delete(hcChannelId);
+  1184→    hcPlayerMap.delete(game.players[0]);
+  1185→    hcPlayerMap.delete(game.players[1]);
+  1186→
+  1187→    return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setTitle('🏏 Game Quit!').setDescription(`**${interaction.user.username}** quit! ${winnerName ? `**${winnerName}** wins!` : ''}`).setTimestamp()] });
+  1188→  }
+  1189→
+  1190→  /* ── Innings Ready ── */
+  1191→  if (actionCode === 'ir') {
+  1192→    const game = activeHCGames.get(channelId);
+  1193→    if (!game || game.phase !== HC_PHASE.INNINGS_BREAK) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Not in innings break!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1194→
+  1195→    game.startSecondInnings();
+  1196→    game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1197→
+  1198→    const nextBatName = client.users.cache.get(game.battingNow)?.username || game.botProfile?.name || 'Player';
+  1199→    const nextBowlName = client.users.cache.get(game.bowlingNow)?.username || game.botProfile?.name || 'Player';
+  1200→
+  1201→    const startEmbed = new EmbedBuilder()
+  1202→      .setColor(COLORS.SUCCESS)
+  1203→      .setTitle('🏏 2nd Innings Started!')
+  1204→      .setDescription(
+  1205→        `━━━━━━━━━━━━━━━━━━━\n` +
+  1206→        `┣ 🏏 **Batting:** ${nextBatName}\n` +
+  1207→        `┣ 🎯 **Bowling:** ${nextBowlName}\n` +
+  1208→        `┗ 👇 Click a number button below to play!`
+  1209→      )
+  1210→      .setFooter({ text: '🏏 No DM needed — click below!' })
+  1211→      .setTimestamp();
+  1212→    await interaction.update({ embeds: [startEmbed], components: getNumberButtons(channelId) });
+  1213→    return;
+  1214→  }
+  1215→
+  1216→  /* ── Rematch ── */
+  1217→  if (actionCode === 'rm') {
+  1218→    const oldGame = activeHCGames.get(channelId);
+  1219→    // Game already ended, create new game with same players
+  1220→    if (!oldGame) {
+  1221→      // Try to find the last game — use stored data
+  1222→      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 No game to rematch!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1223→    }
+  1224→    // This shouldn't happen since game ended, but handle it
+  1225→    return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription('🚫 Game still in progress!').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1226→  }
+  1227→
+  1228→  /* ── Super Over ── */
+  1229→  if (actionCode === 'so') {
+  1230→    // This is called after a tie from game over
+  1231→    // We need to find the ended game - it's been cleaned up, so we can't
+  1232→    // Just inform user to use /handcricket challenge for super over
+  1233→    return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🏟️ Super Over!').setDescription('Start a new challenge with 1 over, 2 wickets for a Super Over!\n`/handcricket challenge @opponent overs:1 wickets:2`').setTimestamp()], flags: MessageFlags.Ephemeral });
+  1234→  }
+  1235→}
+  1236→
+  1237→/* ── Helper: Send match start message after bat/bowl choice ── */
+  1238→async function sendMatchStartMessage(interaction, game, choice) {
+  1239→  const batName = client.users.cache.get(game.battingFirst)?.username || game.botProfile?.name || 'Player';
+  1240→  const bowlName = client.users.cache.get(game.bowlingFirst)?.username || game.botProfile?.name || 'Player';
+  1241→
+  1242→  const matchEmbed = new EmbedBuilder()
+  1243→    .setColor(COLORS.SUCCESS)
+  1244→    .setTitle('🏏 Match Started!')
+  1245→    .setDescription(
+  1246→      `━━━━━━━━━━━━━━━━━━━\n` +
+  1247→      `┣ 🏏 **Batting:** ${batName}\n` +
+  1248→      `┣ 🎯 **Bowling:** ${bowlName}\n` +
+  1249→      `┣ 📏 **${game.maxOvers} over${game.maxOvers > 1 ? 's' : ''}**, **${game.maxWickets} wicket${game.maxWickets > 1 ? 's' : ''}**\n` +
+  1250→      `${game.isPowerplayActive ? '┣ ⚡ **POWERPLAY ACTIVE!**\n' : ''}` +
+  1251→      `${game.isRanked ? '┣ 🏆 **RANKED MATCH!**\n' : ''}` +
+  1252→      `┣ 👇 **Click a number (1-6) to play!**\n` +
+  1253→      `┗ ⏱️ ${MATCH_TURN_TIMEOUT}s per ball!`
+  1254→    )
+  1255→    .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
+  1256→    .setTimestamp();
+  1257→
+  1258→  if (interaction.replied || interaction.deferred) {
+  1259→    await interaction.channel.send({ embeds: [matchEmbed], components: getNumberButtons(game.channelId) });
+  1260→  } else {
+  1261→    await interaction.update({ embeds: [matchEmbed], components: getNumberButtons(game.channelId) });
+  1262→  }
+  1263→
+  1264→  game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1265→}
+  1266→
+  1267→/* ── Helper: Handle ball result and post to channel ── */
+  1268→async function handleBallResult(interaction, game, result) {
+  1269→  const channel = game.channel;
+  1270→  if (!channel) return;
+  1271→
+  1272→  const batsmanName = client.users.cache.get(result.batsman)?.username || game.botProfile?.name || 'Batsman';
+  1273→  const bowlerName = client.users.cache.get(result.bowler)?.username || game.botProfile?.name || 'Bowler';
+  1274→  const remaining = game.getRemainingBalls();
+  1275→
+  1276→  // Catch pending — pause for button input
+  1277→  if (result.message === 'catch_pending') {
+  1278→    const catchEmbed = new EmbedBuilder()
+  1279→      .setColor(COLORS.CATCH)
+  1280→      .setTitle('🧤 CATCH CHANCE!')
+  1281→      .setDescription(
+  1282→        `${result.commentary}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1283→        `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1284→        `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1285→        `┣ 🧤 **Fielder: ${result.catchFielder}**\n` +
+  1286→        `┣ 💨 +${result.runsThisBall} runs${result.powerplayBonus ? ` (+${result.powerplayBonus} PP bonus)` : ''}\n` +
+  1287→        `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+  1288→        `┗ 👇 **Bowler:** Choose your catch action!`
+  1289→      )
+  1290→      .setTimestamp();
+  1291→
+  1292→    await channel.send({ embeds: [catchEmbed], components: [getCatchActionButtons(game.channelId)] });
+  1293→    await interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.CATCH).setTitle('🧤 Catch Chance!').setDescription(`You chose **${result.batNum || result.bowlNum}**!\nCatch pending — bowler must choose!`).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1294→    return;
+  1295→  }
+  1296→
+  1297→  // Normal ball result
+  1298→  if (result.message === 'catch_out') {
+  1299→    const catchEmbed = new EmbedBuilder()
+  1300→      .setColor(COLORS.WICKET)
+  1301→      .setTitle('🧤 CATCH OUT!')
+  1302→      .setDescription(
+  1303→        `${result.commentary}\n\n**${batsmanName}** is CAUGHT!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1304→        `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1305→        `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1306→        `┣ 🧤 **CATCH TAKEN!**\n` +
+  1307→        `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+  1308→        `┗ ${result.isHatTrick ? '🎩 **HAT-TRICK!**' : '🧤 What a catch!'}`
+  1309→      )
+  1310→      .setTimestamp();
+  1311→    await channel.send({ embeds: [catchEmbed] });
+  1312→    if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1313→  } else if (result.message === 'out') {
+  1314→    const outEmbed = new EmbedBuilder()
+  1315→      .setColor(COLORS.WICKET)
+  1316→      .setTitle('💀 OUT!')
+  1317→      .setDescription(
+  1318→        `${result.commentary}\n\n**${batsmanName}** is OUT!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1319→        `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1320→        `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1321→        `┣ 💀 **Same number — OUT!**\n` +
+  1322→        `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+  1323→        `┗ ${result.isHatTrick ? '🎩 **HAT-TRICK!**' : result.isDuck ? '🦆 **GOLDEN DUCK!**' : '🎯 Walks back...'} `
+  1324→      )
+  1325→      .setTimestamp();
+  1326→    await channel.send({ embeds: [outEmbed] });
+  1327→    if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1328→  } else {
+  1329→    // Runs scored
+  1330→    const runsTitle = result.isSix ? '🚀 SIXER!' : result.isFour ? '🔥 FOUR!' : `🏏 ${result.runsThisBall} Run${result.runsThisBall > 1 ? 's' : ''}!`;
+  1331→    let desc = `${result.commentary}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1332→      `┣ 🏏 **${batsmanName}** (Batting): ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1333→      `┣ 🎯 **${bowlerName}** (Bowling): ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1334→      `┣ 💨 **+${result.runsThisBall} runs!**${result.powerplayBonus ? ` (+${result.powerplayBonus} PP!)` : ''}${result.economyBonus > 0 ? ` (+₹${result.economyBonus})` : ''}\n` +
+  1335→      `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)${remaining ? ` | ${remaining.ballsLeft} left` : ''}`;
+  1336→
+  1337→    if (result.catchDropped && result.catchResult) desc += `\n┣ 😰 **CATCH DROPPED at ${result.catchResult.fielder}!**`;
+  1338→    if (result.strikeRotated) desc += `\n┣ 🔄 **Strike rotated!**`;
+  1339→    if (result.isPowerplay) desc += `\n┣ ⚡ **POWERPLAY!**`;
+  1340→    desc += `\n┗ ${result.isSix ? '🚀 INTO ORBIT!' : result.isFour ? '🔥 Boundary!' : result.catchDropped ? '😅 Survived!' : '✅ Good cricket!'}`;
+  1341→
+  1342→    const embedColor = result.isSix ? COLORS.SIX : result.isFour ? COLORS.FOUR : result.catchDropped ? COLORS.WARNING : COLORS.SUCCESS;
+  1343→    const runsEmbed = new EmbedBuilder().setColor(embedColor).setTitle(runsTitle).setDescription(desc).setTimestamp();
+  1344→    await channel.send({ embeds: [runsEmbed] });
+  1345→
+  1346→    if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1347→
+  1348→    // Milestone celebrations
+  1349→    if (result.milestoneResults) {
+  1350→      for (const milestone of result.milestoneResults) {
+  1351→        const milestoneColor = milestone.type === 'century' ? COLORS.GOLD : milestone.type === 'double_century' ? COLORS.DANGER : COLORS.MILESTONE;
+  1352→        const milestoneTitle = milestone.type === 'century' ? '👑 CENTURY!' : milestone.type === 'double_century' ? '🌟 DOUBLE CENTURY!' : '🏆 HALF CENTURY!';
+  1353→        const milestoneEmbed = new EmbedBuilder()
+  1354→          .setColor(milestoneColor)
+  1355→          .setTitle(milestoneTitle)
+  1356→          .setDescription(`${milestone.message}\n\n**${batsmanName}** — ${milestone.runs} runs!${milestone.economyBonus > 0 ? `\n💰 +₹${milestone.economyBonus} bonus!` : ''}`)
+  1357→          .setTimestamp();
+  1358→        await channel.send({ embeds: [milestoneEmbed] });
+  1359→        if (milestone.gif) try { await channel.send(milestone.gif); } catch (e) {}
+  1360→      }
+  1361→    }
+  1362→  }
+  1363→
+  1364→  // Confirm to the player who clicked
+  1365→  await interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Ball Played!').setDescription(`You chose **${game.isBotGame ? result.batNum || result.bowlNum : 'your number'}**! Result posted in channel!`).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1366→
+  1367→  // Handle game over
+  1368→  if (result.gameOver) {
+  1369→    await handleHCGameOver(game, {
+  1370→      nextPhase: 'game_over',
+  1371→      winner: result.winner,
+  1372→      loser: result.loser,
+  1373→      isTie: false,
+  1374→      commentary: result.gameOverCommentary || COMMENTARY_GAME_OVER_WIN[Math.floor(Math.random() * COMMENTARY_GAME_OVER_WIN.length)],
+  1375→      economyRewards: game.calculateGameEconomy(result.winner),
+  1376→      canSuperOver: false,
+  1377→    });
+  1378→    if (hcProfileManager) await hcProfileManager.saveMatchHistory(game.getMatchHistory());
+  1379→    return;
+  1380→  }
+  1381→
+  1382→  // Handle innings end
+  1383→  if (result.inningsOver) {
+  1384→    await handleHCInningsEnd(game, result);
+  1385→    return;
+  1386→  }
+  1387→
+  1388→  // Reset timer and send number buttons in channel for next ball
+  1389→  game.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1390→  await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription('👇 Click a number button (1-6) below!').setTimestamp()], components: getNumberButtons(game.channelId) });
+  1391→}
+  1392→
+  1393→/* ── Helper: Send catch result after button click ── */
+  1394→async function sendCatchResultToChannel(interaction, game, result) {
+  1395→  const channel = game.channel;
+  1396→  if (!channel) return;
+  1397→
+  1398→  const batsmanName = client.users.cache.get(game.battingNow)?.username || game.botProfile?.name || 'Batsman';
+  1399→  const bowlerName = client.users.cache.get(game.bowlingNow)?.username || game.botProfile?.name || 'Bowler';
+  1400→  const remaining = game.getRemainingBalls();
+  1401→
+  1402→  if (result.message === 'catch_out') {
+  1403→    const catchEmbed = new EmbedBuilder()
+  1404→      .setColor(COLORS.WICKET)
+  1405→      .setTitle('🧤 CATCH OUT!')
+  1406→      .setDescription(
+  1407→        `${result.commentary}\n\n**${batsmanName}** is CAUGHT!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1408→        `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1409→        `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1410→        `┣ 🧤 **CATCH TAKEN! ${result.catchResult?.isDiving ? '🤿 Diving!' : '🧤 Safe!'}**\n` +
+  1411→        `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+  1412→        `┗ ${result.isHatTrick ? '🎩 **HAT-TRICK!**' : '🧤 Incredible catch!'}`
+  1413→      )
+  1414→      .setTimestamp();
+  1415→    await channel.send({ embeds: [catchEmbed] });
+  1416→    if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1417→  } else {
+  1418→    // Dropped catch
+  1419→    const dropEmbed = new EmbedBuilder()
+  1420→      .setColor(COLORS.WARNING)
+  1421→      .setTitle('😰 CATCH DROPPED!')
+  1422→      .setDescription(
+  1423→        `${result.commentary}\n\n**${batsmanName}** SURVIVES!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1424→        `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1425→        `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1426→        `┣ 😰 **CATCH DROPPED! ${result.catchResult?.isDiving ? '🤿 Dive failed!' : '🧤 Safe attempt missed!'}**\n` +
+  1427→        `┣ 💨 +${result.runsThisBall} runs still count!\n` +
+  1428→        `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+  1429→        `┗ 😅 Lucky escape for ${batsmanName}!`
+  1430→      )
+  1431→      .setTimestamp();
+  1432→    await channel.send({ embeds: [dropEmbed] });
+  1433→
+  1434→    // Milestones after dropped catch
+  1435→    if (result.milestoneResults) {
+  1436→      for (const milestone of result.milestoneResults) {
+  1437→        const milestoneColor = milestone.type === 'century' ? COLORS.GOLD : COLORS.MILESTONE;
+  1438→        const milestoneTitle = milestone.type === 'century' ? '👑 CENTURY!' : '🏆 HALF CENTURY!';
+  1439→        const milestoneEmbed = new EmbedBuilder()
+  1440→          .setColor(milestoneColor)
+  1441→          .setTitle(milestoneTitle)
+  1442→          .setDescription(`${milestone.message}\n\n**${batsmanName}** — ${milestone.runs} runs!`)
+  1443→          .setTimestamp();
+  1444→        await channel.send({ embeds: [milestoneEmbed] });
+  1445→        if (milestone.gif) try { await channel.send(milestone.gif); } catch (e) {}
+  1446→      }
+  1447→    }
+  1448→  }
+  1449→
+  1450→  await interaction.reply({ embeds: [new EmbedBuilder().setColor(result.message === 'catch_out' ? COLORS.WICKET : COLORS.WARNING).setTitle('🏏 Catch Resolved!').setDescription(`You chose **${result.catchResult?.isDiving ? 'Dive 🤿' : 'Safe 🧤'}**! ${result.message === 'catch_out' ? 'Catch taken!' : 'Catch dropped!'}`).setTimestamp()], flags: MessageFlags.Ephemeral });
+  1451→
+  1452→  // Handle game over or innings end
+  1453→  if (result.gameOver) {
+  1454→    await handleHCGameOver(game, {
+  1455→      nextPhase: 'game_over',
+  1456→      winner: result.winner,
+  1457→      loser: result.loser,
+  1458→      isTie: false,
+  1459→      commentary: result.gameOverCommentary || COMMENTARY_GAME_OVER_WIN[Math.floor(Math.random() * COMMENTARY_GAME_OVER_WIN.length)],
+  1460→      economyRewards: game.calculateGameEconomy(result.winner),
+  1461→    });
+  1462→    if (hcProfileManager) await hcProfileManager.saveMatchHistory(game.getMatchHistory());
+  1463→    return;
+  1464→  }
+  1465→
+  1466→  if (result.inningsOver) {
+  1467→    await handleHCInningsEnd(game, result);
+  1468→    return;
+  1469→  }
+  1470→
+  1471→  // Reset timer and send number buttons in channel for next ball
+  1472→  game.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1473→  await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription('👇 Click a number button (1-6) below!').setTimestamp()], components: getNumberButtons(game.channelId) });
+  1474→}
+  1475→
+  1476→/* ═══════════════════════════════════════════
+  1477→   💬  Message Handler
+  1478→   ═══════════════════════════════════════════ */
+  1479→
+  1480→const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
+  1481→
+  1482→client.on('messageCreate', async (message) => {
+  1483→  if (message.author.bot) return;
+  1484→
+  1485→  /* ── Imagine Auto-Response ── */
+  1486→  if (message.content.toLowerCase().trim() === 'imagine') {
+  1487→    return message.reply("Can't even imagine 💀").catch(() => {});
+  1488→  }
+  1489→
+  1490→  /* ── Dracula Name Tracker ── */
+  1491→  const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+  1492→  const SNOW_ID = '982661154843291658';
+  1493→  if (message.guild && message.author.id !== BOT_OWNER_ID) {
+  1494→    const contentLower = message.content.toLowerCase();
+  1495→    if (contentLower.includes('dracula')) {
+  1496→      try {
+  1497→        const owner = await client.users.fetch(BOT_OWNER_ID);
+  1498→        const embed = new EmbedBuilder()
+  1499→          .setColor(0xFF0000)
+  1500→          .setTitle('🩸 Someone Mentioned "Dracula"!')
+  1501→          .addFields(
+  1502→            { name: '👤 Who', value: `**${message.author.username}** (<@${message.author.id}>)`, inline: true },
+  1503→            { name: '🏠 Server', value: message.guild.name, inline: true },
+  1504→            { name: '📢 Channel', value: `<#${message.channel.id}>`, inline: true },
+  1505→            { name: '💬 Message', value: message.content.length > 1024 ? message.content.slice(0, 1021) + '...' : message.content, inline: false },
+  1506→            { name: '🔗 Jump', value: `[Click to view](${message.url})`, inline: false }
+  1507→          )
+  1508→          .setFooter({ text: `Even if deleted, you got this! | MSG ID: ${message.id}` })
+  1509→          .setTimestamp();
+  1510→        await owner.send({ embeds: [embed] });
+  1511→      } catch (err) {
+  1512→        // DM might be blocked, silently skip
+  1513→      }
+  1514→    }
+  1515→  }
+  1516→
+  1517→  /* ── DM Handler ── */
+  1518→  if (!message.guild) {
+  1519→    const msgContent = message.content.toLowerCase().trim();
+  1520→
+  1521→    /* ── Hand Cricket DM Fallback (text-based, for users without button support) ── */
+  1522→    const hcChannelId = hcPlayerMap.get(message.author.id);
+  1523→    if (hcChannelId) {
+  1524→      const hcGame = activeHCGames.get(hcChannelId);
+  1525→      if (hcGame && hcGame.phase !== HC_PHASE.ENDED) {
+  1526→        const num = parseInt(msgContent);
+  1527→
+  1528→        // Coin toss for single player (heads/tails) — DM fallback
+  1529→        if (hcGame.isBotGame && hcGame.phase === HC_PHASE.TOSS && (msgContent === 'heads' || msgContent === 'tails')) {
+  1530→          const result = hcGame.coinTossChoice(message.author.id, msgContent);
+  1531→          if (!result.success) return message.reply(result.message);
+  1532→
+  1533→          const channel = hcGame.channel;
+  1534→          if (!channel) return;
+  1535→
+  1536→          const tossEmbed = new EmbedBuilder()
+  1537→            .setColor(result.playerWon ? COLORS.SUCCESS : COLORS.DANGER)
+  1538→            .setTitle('🪙 Coin Toss Result!')
+  1539→            .setDescription(
+  1540→              `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1541→              `┣ 🪙 **Coin:** ${result.coinResult === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+  1542→              `┣ 🎯 **You chose:** ${result.playerChoice === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+  1543→              `┗ ${result.playerWon ? '🏆 **You won the toss!**' : '😢 **You lost the toss!**'}\n\n${result.playerWon ? 'Click **Bat** or **Bowl** in channel, or DM me!' : 'Bot is choosing...'}`
+  1544→            )
+  1545→            .setTimestamp();
+  1546→          await channel.send({ embeds: [tossEmbed], components: result.playerWon ? [getBatBowlButtons(hcChannelId)] : [] });
+  1547→
+  1548→          if (!result.playerWon) {
+  1549→            const botChoice = hcGame.botChooseBatBowl();
+  1550→            const botChose = botChoice.battingFirst === hcGame.player2Id ? 'bat' : 'bowl';
+  1551→            const playerRole = botChose === 'bat' ? 'bowl' : 'bat';
+  1552→
+  1553→            const botChoiceEmbed = new EmbedBuilder()
+  1554→              .setColor(COLORS.WARNING)
+  1555→              .setTitle('🤖 Bot chose to ' + botChose + '!')
+  1556→              .setDescription(
+  1557→                `━━━━━━━━━━━━━━━━━━━\n` +
+  1558→                `┣ 🤖 **${hcGame.botProfile.name}**: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
+  1559→                `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
+  1560→                `┗ 👇 Click a number button below!`
+  1561→              )
+  1562→              .setFooter({ text: '🏏 King Kohli Mode | No DM needed!' })
+  1563→              .setTimestamp();
+  1564→            await channel.send({ embeds: [botChoiceEmbed], components: getNumberButtons(hcChannelId) });
+  1565→
+  1566→            hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1567→          }
+  1568→          return;
+  1569→        }
+  1570→
+  1571→        // bat/bowl choice from DM — fallback
+  1572→        if (hcGame.phase === HC_PHASE.TOSS_CHOICE && (msgContent === 'bat' || msgContent === 'bowl')) {
+  1573→          const result = hcGame.chooseBatBowl(message.author.id, msgContent);
+  1574→          if (!result.success) return message.reply(result.message);
+  1575→
+  1576→          const channel = hcGame.channel;
+  1577→          if (channel) {
+  1578→            const batName = client.users.cache.get(result.battingFirst)?.username || 'Player';
+  1579→            const bowlName = client.users.cache.get(result.bowlingFirst)?.username || 'Player';
+  1580→
+  1581→            const startEmbed = new EmbedBuilder()
+  1582→              .setColor(COLORS.SUCCESS)
+  1583→              .setTitle('🏏 Match Started!')
+  1584→              .setDescription(
+  1585→                `━━━━━━━━━━━━━━━━━━━\n` +
+  1586→                `┣ 🏏 **Batting:** ${batName}\n` +
+  1587→                `┣ 🎯 **Bowling:** ${bowlName}\n` +
+  1588→                `┣ 📏 **${hcGame.maxOvers} over${hcGame.maxOvers > 1 ? 's' : ''}**, **${hcGame.maxWickets} wicket${hcGame.maxWickets > 1 ? 's' : ''}**\n` +
+  1589→                `┣ 🧤 **Catch System:** Active!\n` +
+  1590→                `┗ 👇 Click a number button below!`
+  1591→              )
+  1592→              .setFooter({ text: `🏏 Captain Cool Mode | ⏱️ ${MATCH_TURN_TIMEOUT}s per ball` })
+  1593→              .setTimestamp();
+  1594→            await channel.send({ embeds: [startEmbed], components: getNumberButtons(hcChannelId) });
+  1595→          }
+  1596→
+  1597→          hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1598→          return message.reply('🏏 Match started! Click number buttons in the channel!');
+  1599→        }
+  1600→
+  1601→        // Toss number submission (1-6) — DM fallback
+  1602→        if (hcGame.phase === HC_PHASE.TOSS && !isNaN(num) && num >= 1 && num <= 6) {
+  1603→          const result = hcGame.submitTossNumber(message.author.id, num);
+  1604→          if (!result.success) return message.reply(result.message);
+  1605→
+  1606→          if (result.message === 'waiting_for_opponent') {
+  1607→            return message.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Toss Number Recorded!').setDescription(`You chose **${num}**!\nWaiting for opponent...`).setTimestamp()] });
+  1608→          }
+  1609→
+  1610→          if (result.message === 'toss_resolved') {
+  1611→            const channel = hcGame.channel;
+  1612→            if (!channel) return;
+  1613→
+  1614→            const p1Name = client.users.cache.get(hcGame.players[0])?.username || 'Player 1';
+  1615→            const p2Name = client.users.cache.get(hcGame.players[1])?.username || 'Player 2';
+  1616→
+  1617→            const tossEmbed = new EmbedBuilder()
+  1618→              .setColor(COLORS.GOLD)
+  1619→              .setTitle('🪙 Toss Result!')
+  1620→              .setDescription(
+  1621→                `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1622→                `┣ 🎲 **${p1Name}** chose: ${EMOJI_NUMBERS[result.p1Num - 1]}\n` +
+  1623→                `┣ 🎲 **${p2Name}** chose: ${EMOJI_NUMBERS[result.p2Num - 1]}\n` +
+  1624→                `┣ ➕ **Sum:** ${result.sum} (${result.result})\n` +
+  1625→                `┗ 🏆 **Toss Winner:** <@${result.winner}>!`
+  1626→              )
+  1627→              .setFooter({ text: '🏏 Toss winner: Click Bat or Bowl!' })
+  1628→              .setTimestamp();
+  1629→            await channel.send({ embeds: [tossEmbed], components: [getBatBowlButtons(hcChannelId)] });
+  1630→
+  1631→            // Toss result already shown in channel with buttons — no DM needed
+  1632→            return;
+  1633→          }
+  1634→        }
+  1635→
+  1636→        // Play number submission during game (1-6) — DM text fallback
+  1637→        if (hcGame.phase === HC_PHASE.PLAYING && !isNaN(num) && num >= 1 && num <= 6) {
+  1638→          const isBatting = message.author.id === hcGame.battingNow;
+  1639→          const roleLabel = isBatting ? '🏏 Batting' : '🎯 Bowling';
+  1640→          const result = hcGame.submitPlayNumber(message.author.id, num);
+  1641→          if (!result.success) return message.reply(result.message);
+  1642→
+  1643→          if (result.message === 'waiting_for_opponent') {
+  1644→            const timeLeft = hcGame.getSelectionTimeRemaining?.() || MATCH_TURN_TIMEOUT;
+  1645→            return message.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${roleLabel})\n⏱️ ${timeLeft}s left!\n\nYour opponent can click buttons in the channel!`).setTimestamp()] });
+  1646→          }
+  1647→
+  1648→          // Ball resolved via DM — reuse the same logic
+  1649→          const channel = hcGame.channel;
+  1650→          if (!channel) return;
+  1651→
+  1652→          const batsmanName = client.users.cache.get(result.batsman)?.username || hcGame.botProfile?.name || 'Batsman';
+  1653→          const bowlerName = client.users.cache.get(result.bowler)?.username || hcGame.botProfile?.name || 'Bowler';
+  1654→          const remaining = hcGame.getRemainingBalls();
+  1655→
+  1656→          // Handle catch pending
+  1657→          if (result.message === 'catch_pending') {
+  1658→            const catchEmbed = new EmbedBuilder()
+  1659→              .setColor(COLORS.CATCH)
+  1660→              .setTitle('🧤 CATCH CHANCE!')
+  1661→              .setDescription(
+  1662→                `${result.commentary}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+  1663→                `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+  1664→                `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+  1665→                `┣ 🧤 **Fielder: ${result.catchFielder}**\n` +
+  1666→                `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets}\n` +
+  1667→                `┗ 👇 **Bowler:** Choose your catch action!`
+  1668→              )
+  1669→              .setTimestamp();
+  1670→            await channel.send({ embeds: [catchEmbed], components: [getCatchActionButtons(hcChannelId)] });
+  1671→            return message.reply('🏏 Catch pending! Bowler must choose in channel!');
+  1672→          }
+  1673→
+  1674→          if (result.message === 'catch_out') {
+  1675→            const catchEmbed = new EmbedBuilder().setColor(COLORS.WICKET).setTitle('🧤 CATCH OUT!').setDescription(`${result.commentary}\n\n**${batsmanName}** is CAUGHT!\n\n┣ 🏏 ${EMOJI_NUMBERS[result.batNum - 1]} | 🎯 ${EMOJI_NUMBERS[result.bowlNum - 1]}\n┣ 📊 ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n┗ ${result.isHatTrick ? '🎩 HAT-TRICK!' : '🧤 What a catch!'}`).setTimestamp();
+  1676→            await channel.send({ embeds: [catchEmbed] });
+  1677→            if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1678→          } else if (result.message === 'out') {
+  1679→            const outEmbed = new EmbedBuilder().setColor(COLORS.WICKET).setTitle('💀 OUT!').setDescription(`${result.commentary}\n\n**${batsmanName}** is OUT!\n\n┣ 🏏 ${EMOJI_NUMBERS[result.batNum - 1]} | 🎯 ${EMOJI_NUMBERS[result.bowlNum - 1]}\n┣ 📊 ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n┗ ${result.isHatTrick ? '🎩 HAT-TRICK!' : result.isDuck ? '🦆 GOLDEN DUCK!' : '🎯 Walks back...'}`).setTimestamp();
+  1680→            await channel.send({ embeds: [outEmbed] });
+  1681→            if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1682→          } else {
+  1683→            const runsTitle = result.isSix ? '🚀 SIXER!' : result.isFour ? '🔥 FOUR!' : `🏏 ${result.runsThisBall} Runs!`;
+  1684→            let desc = `${result.commentary}\n\n┣ 🏏 ${batsmanName}: ${EMOJI_NUMBERS[result.batNum - 1]} | 🎯 ${bowlerName}: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n┣ +${result.runsThisBall} runs! | 📊 ${result.totalRuns}/${result.wickets} (${result.balls} balls)`;
+  1685→            if (result.catchDropped) desc += `\n┣ 😰 CATCH DROPPED!`;
+  1686→            if (result.strikeRotated) desc += `\n┣ 🔄 Strike rotated!`;
+  1687→            desc += `\n┗ ${result.isSix ? '🚀 INTO ORBIT!' : result.isFour ? '🔥 Boundary!' : '✅ Good cricket!'}`;
+  1688→            const embedColor = result.isSix ? COLORS.SIX : result.isFour ? COLORS.FOUR : COLORS.SUCCESS;
+  1689→            await channel.send({ embeds: [new EmbedBuilder().setColor(embedColor).setTitle(runsTitle).setDescription(desc).setTimestamp()] });
+  1690→            if (result.gif) try { await channel.send(result.gif); } catch (e) {}
+  1691→
+  1692→            if (result.milestoneResults) {
+  1693→              for (const milestone of result.milestoneResults) {
+  1694→                const mColor = milestone.type === 'century' ? COLORS.GOLD : COLORS.MILESTONE;
+  1695→                const mTitle = milestone.type === 'century' ? '👑 CENTURY!' : '🏆 HALF CENTURY!';
+  1696→                await channel.send({ embeds: [new EmbedBuilder().setColor(mColor).setTitle(mTitle).setDescription(`${milestone.message}\n**${batsmanName}** — ${milestone.runs} runs!`).setTimestamp()] });
+  1697→                if (milestone.gif) try { await channel.send(milestone.gif); } catch (e) {}
+  1698→              }
+  1699→            }
+  1700→          }
+  1701→
+  1702→          if (result.gameOver) {
+  1703→            await handleHCGameOver(hcGame, { nextPhase: 'game_over', winner: result.winner, loser: result.loser, isTie: false, commentary: result.gameOverCommentary, economyRewards: hcGame.calculateGameEconomy(result.winner) });
+  1704→            if (hcProfileManager) await hcProfileManager.saveMatchHistory(hcGame.getMatchHistory());
+  1705→            return;
+  1706→          }
+  1707→
+  1708→          if (result.inningsOver) {
+  1709→            await handleHCInningsEnd(hcGame, result);
+  1710→          } else {
+  1711→            hcGame.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1712→            // Send next ball buttons in channel
+  1713→            await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription('👇 Click a number button (1-6) below!').setTimestamp()], components: getNumberButtons(hcChannelId) });
+  1714→          }
+  1715→          return;
+  1716→        }
+  1717→
+  1718→        // bat/bowl choice from DM
+  1719→        if (hcGame.phase === HC_PHASE.TOSS_CHOICE && (msgContent === 'bat' || msgContent === 'bowl')) {
+  1720→          const result = hcGame.chooseBatBowl(message.author.id, msgContent);
+  1721→          if (!result.success) return message.reply(result.message);
+  1722→
+  1723→          const channel = hcGame.channel;
+  1724→          if (channel) {
+  1725→            const batName = client.users.cache.get(result.battingFirst)?.username || hcGame.botProfile?.name || 'Batsman';
+  1726→            const bowlName = client.users.cache.get(result.bowlingFirst)?.username || hcGame.botProfile?.name || 'Bowler';
+  1727→
+  1728→            const startEmbed = new EmbedBuilder()
+  1729→              .setColor(0x2ECC71)
+  1730→              .setTitle('🏏 Match Started!')
+  1731→              .setDescription(
+  1732→                `━━━━━━━━━━━━━━━━━━━\n` +
+  1733→                `┣ 🏏 **Batting:** ${batName}\n` +
+  1734→                `┣ 🎯 **Bowling:** ${bowlName}\n` +
+  1735→                `┣ 📏 **Format:** ${hcGame.maxOvers} over${hcGame.maxOvers > 1 ? 's' : ''}, ${hcGame.maxWickets} wicket${hcGame.maxWickets > 1 ? 's' : ''}\n` +
+  1736→                `┣ ⏱️ **Timer:** ${MATCH_TURN_TIMEOUT}s per ball\n` +
+  1737→                `┗ 👇 Click a number button below!`
+  1738→              )
+  1739→              .setFooter({ text: '🏏 Hitman Mode | No DM needed!' })
+  1740→              .setTimestamp();
+  1741→            await channel.send({ embeds: [startEmbed], components: getNumberButtons(hcChannelId) });
+  1742→
+  1743→            // Start match timer
+  1744→            hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+  1745→          }
+  1746→          return;
+  1747→        }
+  1748→      }
+  1749→    }
+  1750→
+  1751→    /* ── Mafia Night Actions (DM) ── */
+  1752→    if (msgContent.startsWith('w.')) {
+  1753→      const args = message.content.trim().split(/\s+/);
+  1754→      const cmd = args[0].toLowerCase();
+  1755→
+  1756→      if (cmd === 'w.nightkill' || cmd === 'w.nk' || cmd === 'w.save' || cmd === 'w.check') {
+  1757→        let foundGame = null;
+  1758→        for (const [, g] of activeGames) {
+  1759→          if (g.players.has(message.author.id) && g.state !== GAME_STATE.ENDED && g.mode === GAME_MODE.MAFIA) {
+  1760→            foundGame = g;
+  1761→            break;
+  1762→          }
+  1763→        }
+  1764→        if (!foundGame) return message.reply('🚫 You are not in any active Mafia game!');
+  1765→        if (foundGame.state !== GAME_STATE.NIGHT) return message.reply('🌙 Night actions only during the night!');
+  1766→        const targetNum = parseInt(args[1]);
+  1767→        if (isNaN(targetNum)) return message.reply(`❌ Use \`${cmd} <number>\` — Example: \`${cmd} 3\``);
+  1768→
+  1769→        let result;
+  1770→        if (cmd === 'w.nightkill' || cmd === 'w.nk') result = foundGame.wolfKill(message.author.id, targetNum);
+  1771→        else if (cmd === 'w.save') result = foundGame.doctorSave(message.author.id, targetNum);
+  1772→        else if (cmd === 'w.check') result = foundGame.seerCheck(message.author.id, targetNum);
+  1773→
+  1774→        if (result) {
+  1775→          await message.reply(result.message);
+  1776→          if (result.success) await tryAutoResolveMafiaNight(foundGame);
+  1777→        }
+  1778→      } else if (cmd === 'w.help') {
+  1779→        return message.reply(
+  1780→          'Werewolf — DM Commands:\n' +
+  1781→          '`w.nk <#>` — Mafia: choose victim\n' +
+  1782→          '`w.save <#>` — Doctor: protect someone\n' +
+  1783→          '`w.check <#>` — Cop: investigate someone'
+  1784→        );
+  1785→      }
+  1786→    }
+  1787→    return;
+  1788→  }
+  1789→
+  1790→  const msgContent = message.content.toLowerCase().trim();
+  1791→
+  1792→  /* ═══════════════════════════════════════════
+  1793→     🌐 Translation Command — !tr (reply to a message)
+  1794→     ═══════════════════════════════════════════ */
+  1795→  if (msgContent === '!tr' || msgContent.startsWith('!tr ')) {
+  1796→    let textToTranslate = message.content.slice(3).trim();
+  1797→    let repliedMsg = null;
+  1798→
+  1799→    // Priority: reply message > typed text
+  1800→    if (message.reference?.messageId) {
+  1801→      try {
+  1802→        repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
+  1803→        textToTranslate = repliedMsg.content;
+  1804→      } catch (e) {
+  1805→        // Couldn't fetch replied message, fall back to typed text
+  1806→      }
+  1807→    }
+  1808→
+  1809→    if (!textToTranslate) {
+  1810→      return message.reply('❌ Reply to a message with `!tr` to translate it!').catch(console.error);
+  1811→    }
+  1812→
+  1813→    try {
+  1814→      const result = await translate(textToTranslate, { to: 'en' });
+  1815→      const embed = new EmbedBuilder()
+  1816→        .setColor(0x00D4FF)
+  1817→        .setAuthor({ name: '🌐 Translation', iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+  1818→        .addFields(
+  1819→          { name: `📝 Original (${result.raw?.src || 'auto'})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
+  1820→          { name: '🇬🇧 English', value: result.text.length > 1024 ? result.text.slice(0, 1021) + '...' : result.text, inline: false }
+  1821→        )
+  1822→        .setFooter({ text: `Requested by ${message.author.username}` })
+  1823→        .setTimestamp();
+  1824→      return message.reply({ embeds: [embed] }).catch(console.error);
+  1825→    } catch (err) {
+  1826→      console.error('Translation error:', err);
+  1827→      return message.reply('❌ Translation failed! Try again later.').catch(console.error);
+  1828→    }
+  1829→  }
+  1830→
+  1831→  /* ═══════════════════════════════════════════
+  1832→     🔇 .shut — Auto-delete target user's messages (bot owner only)
+  1833→     🧛 .dracula — Unshut (stop auto-deleting)
+  1834→     🔍 .snipe — See last deleted message (bot owner only)
+  1835→     ═══════════════════════════════════════════ */
+  1836→
+  1837→  // .shut or !shut @user/<userID>
+  1838→  if (/^[.!]shut/.test(msgContent)) {
+  1839→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1840→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  1841→    }
+  1842→    let target = message.mentions.users.first();
+  1843→    if (!target) {
+  1844→      const userId = message.content.trim().split(/\s+/)[1];
+  1845→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1846→        target = await client.users.fetch(userId).catch(() => null);
+  1847→      }
+  1848→    }
+  1849→    if (!target) {
+  1850→      return message.reply('❌ Usage: `.shut @user` or `.shut <user_id>`').catch(() => {});
+  1851→    }
+  1852→    if (target.id === BOT_OWNER_ID || target.id === SNOW_ID) {
+  1853→      return message.reply("🧛 You can't shut them!").catch(() => {});
+  1854→    }
+  1855→    if (!client.shutUsers.has(message.guild.id)) client.shutUsers.set(message.guild.id, new Set());
+  1856→    client.shutUsers.get(message.guild.id).add(target.id);
+  1857→
+  1858→    // Delete the command message
+  1859→    await message.delete().catch(() => {});
+  1860→
+  1861→    try {
+  1862→      const dmChannel = await target.createDM();
+  1863→      await dmChannel.send(`🤫 You've been **shut** in **${message.guild.name}**! Your messages will be auto-deleted until you're unshut.`);
+  1864→    } catch (e) { /* DM blocked */ }
+  1865→    return;
+  1866→  }
+  1867→
+  1868→  // .dracula or !dracula @user/<userID> — unshut
+  1869→  if (/^[.!]dracula/.test(msgContent)) {
+  1870→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1871→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  1872→    }
+  1873→    let target = message.mentions.users.first();
+  1874→    if (!target) {
+  1875→      const userId = message.content.trim().split(/\s+/)[1];
+  1876→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1877→        target = await client.users.fetch(userId).catch(() => null);
+  1878→      }
+  1879→    }
+  1880→    if (!target) {
+  1881→      return message.reply('❌ Usage: `.dracula @user` or `.dracula <user_id>`').catch(() => {});
+  1882→    }
+  1883→    if (client.shutUsers.has(message.guild.id)) {
+  1884→      client.shutUsers.get(message.guild.id).delete(target.id);
+  1885→    }
+  1886→
+  1887→    // Delete the command message
+  1888→    await message.delete().catch(() => {});
+  1889→
+  1890→    try {
+  1891→      const dmChannel = await target.createDM();
+  1892→      await dmChannel.send(`🧛 You've been **unshut** in **${message.guild.name}**! You can talk freely again.`);
+  1893→    } catch (e) { /* DM blocked */ }
+  1894→    return;
+  1895→  }
+  1896→
+  1897→  // .snow or !snow @user/<userID> — unshut (same as .dracula)
+  1898→  if (/^[.!]snow/.test(msgContent)) {
+  1899→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1900→      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+  1901→    }
+  1902→    let target = message.mentions.users.first();
+  1903→    if (!target) {
+  1904→      const userId = message.content.trim().split(/\s+/)[1];
+  1905→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1906→        target = await client.users.fetch(userId).catch(() => null);
+  1907→      }
+  1908→    }
+  1909→    if (!target) {
+  1910→      return message.reply('❌ Usage: `.snow @user` or `.snow <user_id>`').catch(() => {});
+  1911→    }
+  1912→    if (client.shutUsers.has(message.guild.id)) {
+  1913→      client.shutUsers.get(message.guild.id).delete(target.id);
+  1914→    }
+  1915→
+  1916→    // Delete the command message
+  1917→    await message.delete().catch(() => {});
+  1918→
+  1919→    try {
+  1920→      const dmChannel = await target.createDM();
+  1921→      await dmChannel.send(`❄️ You've been **unshut** in **${message.guild.name}**! You can talk freely again.`);
+  1922→    } catch (e) { /* DM blocked */ }
+  1923→    return;
+  1924→  }
+  1925→
+  1926→  // .afkbreak or !afkbreak @user/<userID> — break someone's AFK
+  1927→  if (/^[.!]afkbreak/.test(msgContent)) {
+  1928→    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+  1929→      return message.reply('🚫 Only the bot owner and Snow can use this!').catch(() => {});
+  1930→    }
+  1931→    let target = message.mentions.users.first();
+  1932→    if (!target) {
+  1933→      const userId = message.content.trim().split(/\s+/)[1];
+  1934→      if (userId && /^\d{17,20}$/.test(userId)) {
+  1935→        target = await client.users.fetch(userId).catch(() => null);
+  1936→      }
+  1937→    }
+  1938→    if (!target) {
+  1939→      return message.reply('❌ Usage: `.afkbreak @user` or `.afkbreak <user_id>`').catch(() => {});
+  1940→    }
+  1941→
+  1942→    const { data: afkData, error: fetchErr } = await supabase
+  1943→      .from('afk_users')
+  1944→      .select('*')
+  1945→      .eq('user_id', target.id)
+  1946→      .eq('guild_id', message.guild.id)
+  1947→      .maybeSingle();
+  1948→
+  1949→    if (fetchErr) { console.error('AFK break fetch error:', fetchErr); return; }
+  1950→    if (!afkData) {
+  1951→      await message.delete().catch(() => {});
+  1952→      return message.reply(`✨ **${target.username}** is not AFK right now!`).catch(() => {});
+  1953→    }
+  1954→
+  1955→    // Protection check — only bot owner can break protected users
+  1956→    let isProtected = false;
+  1957→    if (client.afkBreakProtected) {
+  1958→      const guildProt = client.afkBreakProtected.get(message.guild.id);
+  1959→      if (guildProt && guildProt.has(target.id)) isProtected = true;
+  1960→    }
+  1961→    if (!isProtected && supabase) {
+  1962→      try {
+  1963→        const { data: protData } = await supabase
+  1964→          .from('afk_break_protected')
+  1965→          .select('user_id')
+  1966→          .eq('guild_id', message.guild.id)
+  1967→          .eq('user_id', target.id)
+  1968→          .maybeSingle();
+  1969→        if (protData) isProtected = true;
+  1970→      } catch (e) { console.error('Protection check error:', e.message); }
+  1971→    }
+  1972→    if (isProtected && message.author.id !== BOT_OWNER_ID) {
+  1973→      await message.delete().catch(() => {});
+  1974→      return message.reply(`🛡️ **${target.username}** is AFK break protected! Only the bot owner can break their AFK.`).catch(() => {});
+  1975→    }
+  1976→
+  1977→    // Remove AFK
+  1978→    const { error: delErr } = await supabase
+  1979→      .from('afk_users')
+  1980→      .delete()
+  1981→      .eq('user_id', target.id)
+  1982→      .eq('guild_id', message.guild.id);
+  1983→
+  1984→    if (delErr) {
+  1985→      console.error('AFK break delete error:', delErr);
+  1986→      return message.reply('💔 Something went wrong removing AFK status.').catch(() => {});
+  1987→    }
+  1988→
+  1989→    // Remove AFK role & nickname
+  1990→    const targetMember = await message.guild.members.fetch(target.id).catch(() => null);
+  1991→    if (targetMember) {
+  1992→      const afkRole = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+  1993→      if (afkRole && targetMember.roles.cache.has(afkRole.id)) {
+  1994→        try { await targetMember.roles.remove(afkRole, 'AFK broken via .afkbreak'); } catch (e) { /* skip */ }
+  1995→      }
+  1996→      const isTargetOwner = message.guild.ownerId === target.id;
+  1997→      const botCanNick = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+  1998→      if (!isTargetOwner && botCanNick) {
+  1999→        try {
+  2000→          const normalNick = getNormalNickname(targetMember.nickname, target.username);
+
+[showing lines 1-2000 of 3571; use offset=2001 with limit to continue reading]
