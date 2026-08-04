@@ -592,8 +592,36 @@ client.mimicProtected = new Map();
 client.mimicLogChannel = new Map();
 client.afkBreakProtected = new Map();
 client.shutUsers = new Map();
-client.dailyQuoteChannels = new Map(); // guildId -> channelId
-client.dailyQuoteIntervals = new Map(); // guildId -> interval
+client.dailyQuoteChannels = new Map();
+client.dailyQuoteIntervals = new Map();
+
+const SAD_QUOTES = [
+  { text: 'The saddest thing about betrayal is that it never comes from your enemies.', author: 'Unknown' },
+  { text: 'Sometimes you have to let go to see if there was anything worth holding onto.', author: 'Unknown' },
+  { text: 'The hardest thing is watching the one you love, love someone else.', author: 'Unknown' },
+  { text: 'It hurts when you realize you are not as important to someone as you thought.', author: 'Unknown' },
+  { text: 'Some people are just not meant to be in your life, no matter how much you want them.', author: 'Unknown' },
+  { text: 'The most painful thing is losing yourself in the process of loving someone too much.', author: 'Unknown' },
+  { text: 'Silence speaks so much louder than screaming your lungs out.', author: 'Unknown' },
+  { text: 'I am not okay, but I smile anyway because that is what everyone expects.', author: 'Unknown' },
+  { text: 'The worst feeling is pretending you do not care when it is all you think about.', author: 'Unknown' },
+  { text: 'We ignore the ones who adore us and adore the ones who ignore us.', author: 'Unknown' },
+  { text: 'Tears are words that need to be written.', author: 'Paulo Coelho' },
+  { text: 'The pain you feel today will be the strength you feel tomorrow.', author: 'Unknown' },
+  { text: 'It is sad when someone you know becomes someone you knew.', author: 'Henry Rollins' },
+  { text: 'Sometimes the person you want the most is the person you are best without.', author: 'Unknown' },
+  { text: 'You said you loved me but you lied.', author: 'Unknown' },
+];
+const ALL_QUOTES = [
+  ...SAD_QUOTES,
+  { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
+  { text: 'Be yourself; everyone else is already taken.', author: 'Oscar Wilde' },
+  { text: 'You must be the change you wish to see in the world.', author: 'Mahatma Gandhi' },
+  { text: 'The mind is everything. What you think you become.', author: 'Buddha' },
+  { text: 'Turn your wounds into wisdom.', author: 'Oprah Winfrey' },
+  { text: 'In the middle of difficulty lies opportunity.', author: 'Albert Einstein' },
+  { text: 'Everything you can imagine is real.', author: 'Pablo Picasso' },
+];
 
 /* ═══════════════════════════════════════════
    🟢  Ready + Auto-Register Slash Commands
@@ -714,54 +742,22 @@ client.once(Events.ClientReady, async () => {
   }
 
   /* ── Daily Quote Scheduler ── */
-  const DAILY_QUOTES = [
-    { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
-    { text: 'In the middle of difficulty lies opportunity.', author: 'Albert Einstein' },
-    { text: 'Life is what happens when you are busy making other plans.', author: 'John Lennon' },
-    { text: 'Be yourself; everyone else is already taken.', author: 'Oscar Wilde' },
-    { text: 'The future belongs to those who believe in the beauty of their dreams.', author: 'Eleanor Roosevelt' },
-    { text: 'It does not matter how slowly you go as long as you do not stop.', author: 'Confucius' },
-    { text: 'Everything you can imagine is real.', author: 'Pablo Picasso' },
-    { text: 'The best time to plant a tree was 20 years ago. The second best time is now.', author: 'Chinese Proverb' },
-    { text: 'You must be the change you wish to see in the world.', author: 'Mahatma Gandhi' },
-    { text: 'Strive not to be a success, but rather to be of value.', author: 'Albert Einstein' },
-    { text: 'The mind is everything. What you think you become.', author: 'Buddha' },
-    { text: 'An unexamined life is not worth living.', author: 'Socrates' },
-    { text: 'Turn your wounds into wisdom.', author: 'Oprah Winfrey' },
-    { text: 'The only impossible journey is the one you never begin.', author: 'Tony Robbins' },
-  ];
-  const QUOTE_IMAGES = [
-    'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-    'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800',
-    'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800',
-    'https://images.unsplash.com/photo-1518173946687-a1e4e3e3f8be?w=800',
-    'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800',
-    'https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?w=800',
-    'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
-    'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800',
-    'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800',
-    'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
-  ];
-
   function postDailyQuote() {
     const today = new Date().toDateString();
     for (const [guildId, channelId] of client.dailyQuoteChannels) {
       const ch = client.channels.cache.get(channelId);
       if (!ch) continue;
-      const q = DAILY_QUOTES[Math.floor(Math.random() * DAILY_QUOTES.length)];
-      const img = QUOTE_IMAGES[Math.floor(Math.random() * QUOTE_IMAGES.length)];
+      const q = ALL_QUOTES[Math.floor(Math.random() * ALL_QUOTES.length)];
+      const imgUrl = `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
       const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('✨ Daily Quote')
-        .setDescription(`*"${q.text}"*\n— ${q.author}`)
-        .setImage(img)
+        .setColor(0x2C2F33)
+        .setImage(imgUrl)
         .setFooter({ text: `Abigail 💕 • ${today}` })
         .setTimestamp();
       ch.send({ embeds: [embed] }).catch(() => {});
     }
   }
 
-  // Post once on startup (if any channels configured), then every 24h
   setTimeout(() => {
     postDailyQuote();
     setInterval(postDailyQuote, 24 * 60 * 60 * 1000);
@@ -2385,54 +2381,49 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  /* ── .setup-quotes (creates channel + enables daily quotes) ── */
-  if (msgContent === '.setup-quotes') {
+  /* ── .setup-quotes #channel (or without to create new) ── */
+  if (msgContent === '.setup-quotes' || msgContent.startsWith('.setup-quotes ')) {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
       return message.reply('You need **Manage Channels** permission.').catch(() => {});
     try {
-      const ch = await message.guild.channels.create({
-        name: 'daily-quotes',
-        topic: 'Daily inspirational quotes with images ✨',
-        type: 0, // GUILD_TEXT
-        permissionOverwrites: [
-          { id: message.guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-        ],
-      });
+      let ch;
+      const mentionedCh = message.mentions.channels.first();
+      if (mentionedCh) {
+        ch = mentionedCh;
+      } else {
+        ch = await message.guild.channels.create({
+          name: 'daily-quotes',
+          topic: 'Daily sad/aesthetic quotes ✨',
+          type: 0,
+          permissionOverwrites: [
+            { id: message.guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+          ],
+        });
+      }
       client.dailyQuoteChannels.set(message.guild.id, ch.id);
       const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('✅ Daily Quotes Setup Complete!')
-        .setDescription(`Channel **#${ch.name}** created! Daily quotes with images will be posted here every 24 hours.`)
+        .setColor(0x2C2F33)
+        .setTitle('🖤 Daily Quotes Setup')
+        .setDescription(`Channel **#${ch.name}** is now active! Sad & aesthetic quotes with image cards will be posted here every 24 hours.`)
         .addFields(
           { name: '📌 Channel', value: `<#${ch.id}>`, inline: true },
           { name: '⏰ Frequency', value: 'Every 24 hours', inline: true },
+          { name: '🎭 Vibe', value: 'Sad + Motivational', inline: true },
         )
         .setFooter({ text: 'Abigail 💕' })
         .setTimestamp();
       await message.channel.send({ embeds: [embed] });
       // Post first quote immediately
-      const DAILY_QUOTES_Q = [
-        { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
-        { text: 'Be yourself; everyone else is already taken.', author: 'Oscar Wilde' },
-        { text: 'In the middle of difficulty lies opportunity.', author: 'Albert Einstein' },
-      ];
-      const QUOTE_IMGS = [
-        'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-        'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800',
-        'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
-      ];
-      const q = DAILY_QUOTES_Q[Math.floor(Math.random() * DAILY_QUOTES_Q.length)];
-      const img = QUOTE_IMGS[Math.floor(Math.random() * QUOTE_IMGS.length)];
+      const q = SAD_QUOTES[Math.floor(Math.random() * SAD_QUOTES.length)];
+      const imgUrl = `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
       const qEmbed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('✨ Daily Quote')
-        .setDescription(`*"${q.text}"*\n— ${q.author}`)
-        .setImage(img)
-        .setFooter({ text: `Abigail 💕 • First Quote!` })
+        .setColor(0x2C2F33)
+        .setImage(imgUrl)
+        .setFooter({ text: 'Abigail 💕 • First Quote!' })
         .setTimestamp();
       await ch.send({ embeds: [qEmbed] });
     } catch (e) {
-      message.reply('Failed to create channel. Check permissions.').catch(() => {});
+      message.reply('Failed to setup. Check permissions.').catch(() => {});
     }
     return;
   }
