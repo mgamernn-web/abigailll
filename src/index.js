@@ -591,7 +591,9 @@ client.mimicLogAccess = new Map();
 client.mimicProtected = new Map();
 client.mimicLogChannel = new Map();
 client.afkBreakProtected = new Map();
-client.shutUsers = new Map(); // guildId -> Set of userIds whose messages get auto-deleted
+client.shutUsers = new Map();
+client.dailyQuoteChannels = new Map(); // guildId -> channelId
+client.dailyQuoteIntervals = new Map(); // guildId -> interval
 
 /* ═══════════════════════════════════════════
    🟢  Ready + Auto-Register Slash Commands
@@ -710,6 +712,60 @@ client.once(Events.ClientReady, async () => {
   } catch (error) {
     console.error('❌ Slash command registration failed:', error.message);
   }
+
+  /* ── Daily Quote Scheduler ── */
+  const DAILY_QUOTES = [
+    { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
+    { text: 'In the middle of difficulty lies opportunity.', author: 'Albert Einstein' },
+    { text: 'Life is what happens when you are busy making other plans.', author: 'John Lennon' },
+    { text: 'Be yourself; everyone else is already taken.', author: 'Oscar Wilde' },
+    { text: 'The future belongs to those who believe in the beauty of their dreams.', author: 'Eleanor Roosevelt' },
+    { text: 'It does not matter how slowly you go as long as you do not stop.', author: 'Confucius' },
+    { text: 'Everything you can imagine is real.', author: 'Pablo Picasso' },
+    { text: 'The best time to plant a tree was 20 years ago. The second best time is now.', author: 'Chinese Proverb' },
+    { text: 'You must be the change you wish to see in the world.', author: 'Mahatma Gandhi' },
+    { text: 'Strive not to be a success, but rather to be of value.', author: 'Albert Einstein' },
+    { text: 'The mind is everything. What you think you become.', author: 'Buddha' },
+    { text: 'An unexamined life is not worth living.', author: 'Socrates' },
+    { text: 'Turn your wounds into wisdom.', author: 'Oprah Winfrey' },
+    { text: 'The only impossible journey is the one you never begin.', author: 'Tony Robbins' },
+  ];
+  const QUOTE_IMAGES = [
+    'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
+    'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800',
+    'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800',
+    'https://images.unsplash.com/photo-1518173946687-a1e4e3e3f8be?w=800',
+    'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800',
+    'https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?w=800',
+    'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
+    'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800',
+    'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800',
+    'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800',
+  ];
+
+  function postDailyQuote() {
+    const today = new Date().toDateString();
+    for (const [guildId, channelId] of client.dailyQuoteChannels) {
+      const ch = client.channels.cache.get(channelId);
+      if (!ch) continue;
+      const q = DAILY_QUOTES[Math.floor(Math.random() * DAILY_QUOTES.length)];
+      const img = QUOTE_IMAGES[Math.floor(Math.random() * QUOTE_IMAGES.length)];
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('✨ Daily Quote')
+        .setDescription(`*"${q.text}"*\n— ${q.author}`)
+        .setImage(img)
+        .setFooter({ text: `Abigail 💕 • ${today}` })
+        .setTimestamp();
+      ch.send({ embeds: [embed] }).catch(() => {});
+    }
+  }
+
+  // Post once on startup (if any channels configured), then every 24h
+  setTimeout(() => {
+    postDailyQuote();
+    setInterval(postDailyQuote, 24 * 60 * 60 * 1000);
+  }, 5000);
 
 });
 
@@ -2326,6 +2382,94 @@ client.on('messageCreate', async (message) => {
       .setTimestamp();
     const pollMsg = await message.channel.send({ embeds: [pollEmbed] });
     for (let i = 0; i < options.length; i++) await pollMsg.react(emojis[i]);
+    return;
+  }
+
+  /* ── .setup-quotes (creates channel + enables daily quotes) ── */
+  if (msgContent === '.setup-quotes') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
+      return message.reply('You need **Manage Channels** permission.').catch(() => {});
+    try {
+      const ch = await message.guild.channels.create({
+        name: 'daily-quotes',
+        topic: 'Daily inspirational quotes with images ✨',
+        type: 0, // GUILD_TEXT
+        permissionOverwrites: [
+          { id: message.guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        ],
+      });
+      client.dailyQuoteChannels.set(message.guild.id, ch.id);
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('✅ Daily Quotes Setup Complete!')
+        .setDescription(`Channel **#${ch.name}** created! Daily quotes with images will be posted here every 24 hours.`)
+        .addFields(
+          { name: '📌 Channel', value: `<#${ch.id}>`, inline: true },
+          { name: '⏰ Frequency', value: 'Every 24 hours', inline: true },
+        )
+        .setFooter({ text: 'Abigail 💕' })
+        .setTimestamp();
+      await message.channel.send({ embeds: [embed] });
+      // Post first quote immediately
+      const DAILY_QUOTES_Q = [
+        { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
+        { text: 'Be yourself; everyone else is already taken.', author: 'Oscar Wilde' },
+        { text: 'In the middle of difficulty lies opportunity.', author: 'Albert Einstein' },
+      ];
+      const QUOTE_IMGS = [
+        'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
+        'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800',
+        'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800',
+      ];
+      const q = DAILY_QUOTES_Q[Math.floor(Math.random() * DAILY_QUOTES_Q.length)];
+      const img = QUOTE_IMGS[Math.floor(Math.random() * QUOTE_IMGS.length)];
+      const qEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('✨ Daily Quote')
+        .setDescription(`*"${q.text}"*\n— ${q.author}`)
+        .setImage(img)
+        .setFooter({ text: `Abigail 💕 • First Quote!` })
+        .setTimestamp();
+      await ch.send({ embeds: [qEmbed] });
+    } catch (e) {
+      message.reply('Failed to create channel. Check permissions.').catch(() => {});
+    }
+    return;
+  }
+
+  /* ── .massrole @role ── */
+  if (msgContent.startsWith('.massrole ')) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageRoles))
+      return message.reply('You need **Manage Roles** permission.').catch(() => {});
+    const role = message.mentions.roles.first();
+    if (!role) return message.reply('Tag a role: `.massrole @RoleName`').catch(() => {});
+    if (role.position >= message.guild.members.me.roles.highest.position)
+      return message.reply('My role must be above the target role in hierarchy.').catch(() => {});
+    const status = await message.reply(`⏳ Adding **${role.name}** to all members... This may take a while.`).catch(() => null);
+    let added = 0, failed = 0;
+    try {
+      const members = await message.guild.members.fetch();
+      for (const [, member] of members) {
+        if (member.user.bot) continue;
+        if (member.roles.cache.has(role.id)) continue;
+        try {
+          await member.roles.add(role, 'Mass role add by ' + message.author.tag);
+          added++;
+        } catch (e) { failed++; }
+      }
+    } catch (e) {}
+    const result = new EmbedBuilder()
+      .setColor(added > 0 ? 0x00FF00 : 0xFF0000)
+      .setTitle('✅ Mass Role Complete')
+      .addFields(
+        { name: '🎯 Role', value: `${role}`, inline: true },
+        { name: '✅ Added', value: `${added}`, inline: true },
+        { name: '❌ Failed', value: `${failed}`, inline: true },
+      )
+      .setFooter({ text: `By ${message.member.displayName}` })
+      .setTimestamp();
+    await message.channel.send({ embeds: [result] });
+    if (status) status.delete().catch(() => {});
     return;
   }
 
