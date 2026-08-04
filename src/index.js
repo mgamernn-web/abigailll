@@ -1489,8 +1489,12 @@ client.on('messageCreate', async (message) => {
       const raw = message.content.toLowerCase().replace(/[^a-z\s]/g, ''); // strip special chars
       const isBanned = /n+i+g+g+e+r+|n+i+g+g+a+|ch+u+t+i+y+a+|b+h+o+s+d+i+k+e+|m+a+d+a+r+c+h+o+d+|b+e+h+n+c+h+o+d+|g+a+n+d+u+|l+a+n+d+e+|l+a+u+d+a+|m+u+t+h+|ch+u+t+|b+o+s+d+i+|r+a+n+d+i+|t+a+t+i+|c+h+u+t+y+a+|j+a+t+t+a+|h+a+r+a+m+i+|k+a+m+i+n+a+|s+u+a+r+|k+a+l+a+|t+a+t+t+i+/.test(raw);
       if (isBanned) {
-        const warn = await message.channel.send(`🚫 <@${message.author.id}> — Watch your language!`).catch(() => null);
+        try { await message.delete(); } catch (e) {}
+        const warn = await message.channel.send(`🚫 <@${message.author.id}> — Watch your language! You've been timed out.`).catch(() => null);
         if (warn) setTimeout(() => { warn.delete().catch(() => {}); }, 3000);
+        if (message.member && message.member.moderatable) {
+          try { await message.member.timeout(60 * 1000, 'Auto-mod: banned language'); } catch (e) {}
+        }
         return;
       }
     }
