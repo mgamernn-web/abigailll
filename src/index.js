@@ -771,12 +771,31 @@ client.once(Events.ClientReady, async () => {
   }
 
   // Store helper on client for use outside this block
+  // Generate quote IMAGE using placehold.co (works in Discord embeds)
+  client.makeQuoteImageUrl = function(q) {
+    const colors = [
+      { bg: '1a1a2e', fg: 'e0e0e0' },  // dark navy
+      { bg: '16213e', fg: 'ffffff' },  // dark blue
+      { bg: '0f3460', fg: 'e0e0e0' },  // navy
+      { bg: '2C2F33', fg: 'ffffff' },  // discord dark
+      { bg: '1B1B2F', fg: 'e8d5b7' },  // midnight gold
+      { bg: '162447', fg: 'e8d5b7' },  // dark teal
+      { bg: '1F4068', fg: 'E0AFA0' },  // ocean rose
+      { bg: '2B2D42', fg: 'EDF2F4' },  // charcoal white
+      { bg: '3D3D3D', fg: 'FFD700' },  // dark gold
+      { bg: '2D132C', fg: 'EE4540' },  // dark crimson
+    ];
+    const c = colors[Math.floor(Math.random() * colors.length)];
+    const text = encodeURIComponent(q.text);
+    return `https://placehold.co/600x400/${c.bg}/${c.fg}/png?font=noto-sans&text=${text}`;
+  };
+
   client.makeQuoteEmbed = function(q, label) {
+    const url = client.makeQuoteImageUrl(q);
     return new EmbedBuilder()
       .setColor(0x2C2F33)
-      .setTitle('🖤 Daily Quote')
-      .setDescription(`*"${q.text}"*\n\n— **${q.author}**`)
-      .setFooter({ text: `Abigail 💕${label ? ' • ' + label : ''}` })
+      .setImage(url)
+      .setFooter({ text: `— ${q.author}${label ? ' • ' + label : ''} • Abigail 💕` })
       .setTimestamp();
   };
 

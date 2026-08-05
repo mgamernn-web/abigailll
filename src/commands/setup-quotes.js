@@ -42,12 +42,29 @@ function pickQuote() {
   return ALL_QUOTES[Math.floor(Math.random() * ALL_QUOTES.length)];
 }
 
+function makeQuoteImageUrl(q) {
+  const colors = [
+    { bg: '1a1a2e', fg: 'e0e0e0' },
+    { bg: '16213e', fg: 'ffffff' },
+    { bg: '0f3460', fg: 'e0e0e0' },
+    { bg: '2C2F33', fg: 'ffffff' },
+    { bg: '1B1B2F', fg: 'e8d5b7' },
+    { bg: '162447', fg: 'e8d5b7' },
+    { bg: '1F4068', fg: 'E0AFA0' },
+    { bg: '2B2D42', fg: 'EDF2F4' },
+    { bg: '3D3D3D', fg: 'FFD700' },
+    { bg: '2D132C', fg: 'EE4540' },
+  ];
+  const c = colors[Math.floor(Math.random() * colors.length)];
+  const text = encodeURIComponent(q.text);
+  return `https://placehold.co/600x400/${c.bg}/${c.fg}/png?font=noto-sans&text=${text}`;
+}
+
 function makeQuoteEmbed(q, label) {
   return new EmbedBuilder()
     .setColor(0x2C2F33)
-    .setTitle('🖤 Daily Quote')
-    .setDescription(`*"${q.text}"*\n\n— **${q.author}**`)
-    .setFooter({ text: `Abigail 💕${label ? ' • ' + label : ''}` })
+    .setImage(makeQuoteImageUrl(q))
+    .setFooter({ text: `— ${q.author}${label ? ' • ' + label : ''} • Abigail 💕` })
     .setTimestamp();
 }
 
