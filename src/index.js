@@ -594,6 +594,7 @@ client.afkBreakProtected = new Map();
 client.shutUsers = new Map();
 client.dailyQuoteChannels = new Map();
 client.dailyQuoteIntervals = new Map();
+client.dailyQuoteThemes = new Map();
 
 const SAD_QUOTES = [
   { text: 'The saddest thing about betrayal is that it never comes from your enemies.', author: 'Unknown' },
@@ -707,7 +708,6 @@ client.once(Events.ClientReady, async () => {
         .select('guild_id, user_id');
       if (!mpErr && mpData) {
         for (const row of mpData) {
-          if (!client.mimicProtected) client.mimicProtected = new Map();
           if (!client.mimicProtected.has(row.guild_id)) client.mimicProtected.set(row.guild_id, new Set());
           client.mimicProtected.get(row.guild_id).add(row.user_id);
         }
@@ -715,6 +715,22 @@ client.once(Events.ClientReady, async () => {
       }
     } catch (err) {
       console.error('Failed to load mimic_protected:', err.message);
+    }
+
+    // Load daily quote channels from DB (persistent across restarts)
+    try {
+      const { data: dqData, error: dqErr } = await supabase
+        .from('daily_quote_channels')
+        .select('guild_id, channel_id, theme');
+      if (!dqErr && dqData) {
+        for (const row of dqData) {
+          client.dailyQuoteChannels.set(row.guild_id, row.channel_id);
+          client.dailyQuoteThemes.set(row.guild_id, row.theme || 'all');
+        }
+        console.log(`✅ Loaded ${dqData.length} daily quote channel(s) from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load daily_quote_channels:', err.message);
     }
   }
 
@@ -747,7 +763,11 @@ client.once(Events.ClientReady, async () => {
     for (const [guildId, channelId] of client.dailyQuoteChannels) {
       const ch = client.channels.cache.get(channelId);
       if (!ch) continue;
-      const q = ALL_QUOTES[Math.floor(Math.random() * ALL_QUOTES.length)];
+      const theme = client.dailyQuoteThemes?.get(guildId) || 'all';
+      let pool = ALL_QUOTES;
+      if (theme === 'sad') pool = SAD_QUOTES;
+      else if (theme === 'motive') pool = ALL_QUOTES.filter(q => !SAD_QUOTES.includes(q));
+      const q = pool[Math.floor(Math.random() * pool.length)];
       const imgUrl = `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
       const embed = new EmbedBuilder()
         .setColor(0x2C2F33)
@@ -789,6 +809,46 @@ client.on('interactionCreate', async (interaction) => {
   /* ── Button Interactions ── */
   if (interaction.isButton()) {
     const customId = interaction.customId;
+
+    /* ── 🖤 Daily Quotes Buttons ── */
+    if (customId.startsWith('quotes_stop_')) {
+      const guildId = customId.replace('quotes_stop_', '');
+      client.dailyQuoteChannels.delete(guildId);
+      client.dailyQuoteThemes.delete(guildId);
+      // Remove from Supabase too
+      if (supabase) {
+        try { await supabase.from('daily_quote_channels').delete().eq('guild_id', guildId); } catch (e) {}
+      }
+      return interaction.reply({
+        content: '⏹ Daily quotes **stopped** for this server. Use `/setup-quotes` to start again.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    if (customId.startsWith('quotes_now_')) {
+      const guildId = customId.replace('quotes_now_', '');
+      const channelId = client.dailyQuoteChannels.get(guildId);
+      const ch = channelId ? client.channels.cache.get(channelId) : null;
+      if (!ch) {
+        return interaction.reply({ content: '❌ No quote channel found!', flags: MessageFlags.Ephemeral });
+      }
+      const theme = client.dailyQuoteThemes?.get(guildId) || 'all';
+      let pool = ALL_QUOTES;
+      if (theme === 'sad') pool = SAD_QUOTES;
+      else if (theme === 'motive') pool = ALL_QUOTES.filter(q => !SAD_QUOTES.includes(q));
+      const q = pool[Math.floor(Math.random() * pool.length)];
+      const imgUrl = `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
+      const embed = new EmbedBuilder()
+        .setColor(0x2C2F33)
+        .setImage(imgUrl)
+        .setFooter({ text: 'Abigail 💕 • Manual Post' })
+        .setTimestamp();
+      await ch.send({ embeds: [embed] });
+      return interaction.reply({
+        content: `📨 Quote posted in <#${channelId}>!`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
 
     /* ── 🏏 Hand Cricket Buttons ── */
     if (!customId.startsWith('hc_')) return;
@@ -2417,6 +2477,13 @@ client.on('messageCreate', async (message) => {
         });
       }
       client.dailyQuoteChannels.set(message.guild.id, ch.id);
+      client.dailyQuoteThemes.set(message.guild.id, 'all');
+      // Persist to Supabase
+      if (supabase) {
+        try {
+          await supabase.from('daily_quote_channels').upsert({ guild_id: message.guild.id, channel_id: ch.id, theme: 'all' }, { onConflict: 'guild_id' });
+        } catch (e) { console.error('Failed to save quote channel:', e.message); }
+      }
       const embed = new EmbedBuilder()
         .setColor(0x2C2F33)
         .setTitle('🖤 Daily Quotes Setup')
