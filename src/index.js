@@ -1679,6 +1679,39 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  /* ── 🔔 Highlight System — DM user when their keyword is mentioned ── */
+  if (message.guild && client.highlights && client.highlights.size > 0) {
+    const contentLower = message.content.toLowerCase();
+    const guildId = message.guild.id;
+    for (const [key, keywords] of client.highlights) {
+      if (!key.startsWith(guildId + '-')) continue;
+      const hlUserId = key.split('-')[1];
+      if (hlUserId === message.author.id) continue; // Skip self
+      for (const kw of keywords) {
+        if (contentLower.includes(kw.toLowerCase())) {
+          try {
+            const user = client.users.cache.get(hlUserId) || await client.users.fetch(hlUserId).catch(() => null);
+            if (!user) continue;
+            const hlEmbed = new EmbedBuilder()
+              .setColor(0x5865F2)
+              .setTitle(`🔔 Highlight: "${kw}"`)
+              .setURL(message.url)
+              .setDescription(message.content.substring(0, 500))
+              .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+              .addFields(
+                { name: '📌 Channel', value: `#${message.channel.name}`, inline: true },
+                { name: '🏢 Server', value: message.guild.name, inline: true },
+              )
+              .setFooter({ text: 'Abigail 💕 — Highlights' })
+              .setTimestamp();
+            user.send({ embeds: [hlEmbed] }).catch(() => {});
+          } catch (e) {}
+          break; // Only DM once per user per message, even if multiple keywords match
+        }
+      }
+    }
+  }
+
   /* ── Imagine Auto-Response ── */
   if (message.content.toLowerCase().trim() === 'imagine') {
     return message.reply("Can't even imagine 💀").catch(() => {});
