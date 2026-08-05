@@ -758,7 +758,35 @@ client.once(Events.ClientReady, async () => {
   }
 
   /* ── Daily Quote Scheduler ── */
-  function postDailyQuote() {
+  const https = require('https');
+  function fetchJson(url) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('timeout')), 10000);
+      https.get(url, { headers: { 'User-Agent': 'Abigail-Bot' } }, res => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => { clearTimeout(timeout); resolve(d); });
+      }).on('error', e => { clearTimeout(timeout); reject(e); });
+    });
+  }
+
+  // Store helper on client for use outside this block
+  client.makeQuoteEmbed = function(q, label) {
+    return new EmbedBuilder()
+      .setColor(0x2C2F33)
+      .setTitle('🖤 Daily Quote')
+      .setDescription(`*"${q.text}"*\n\n— **${q.author}**`)
+      .setFooter({ text: `Abigail 💕${label ? ' • ' + label : ''}` })
+      .setTimestamp();
+  };
+
+  client.isSadQuote = function(text) {
+    const sadWords = ['sad', 'pain', 'hurt', 'tears', 'cry', 'lost', 'alone', 'broken', 'betray', 'heart', 'leave', 'pretend', 'ignore'];
+    const lower = text.toLowerCase();
+    return sadWords.some(w => lower.includes(w));
+  };
+
+  async function postDailyQuote() {
     const today = new Date().toDateString();
     for (const [guildId, channelId] of client.dailyQuoteChannels) {
       const ch = client.channels.cache.get(channelId);
@@ -767,16 +795,41 @@ client.once(Events.ClientReady, async () => {
       let pool = ALL_QUOTES;
       if (theme === 'sad') pool = SAD_QUOTES;
       else if (theme === 'motive') pool = ALL_QUOTES.filter(q => !SAD_QUOTES.includes(q));
-      const q = pool[Math.floor(Math.random() * pool.length)];
-      const imgUrl = `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
-      const embed = new EmbedBuilder()
-        .setColor(0x2C2F33)
-        .setImage(imgUrl)
-        .setFooter({ text: `Abigail 💕 • ${today}` })
-        .setTimestamp();
+
+      // Try zenquotes API first for fresh quotes
+      let q = null;
+      try {
+        const raw = await fetchJson('https://zenquotes.io/api/random');
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed[0]) {
+          const quoteText = parsed[0].q;
+          const quoteAuthor = parsed[0].a;
+          // Filter by theme
+          if (theme === 'all' || (theme === 'sad' && client.isSadQuote(quoteText)) || (theme === 'motive' && !client.isSadQuote(quoteText))) {
+            q = { text: quoteText, author: quoteAuthor };
+          }
+        }
+      } catch (e) { /* API failed, use local quotes */ }
+
+      // Fallback to local quotes
+      if (!q) q = pool[Math.floor(Math.random() * pool.length)];
+
+      const embed = client.makeQuoteEmbed(q, today);
       ch.send({ embeds: [embed] }).catch(() => {});
     }
   }
+
+  // Fetch fresh memes from imgflip API
+  client.cachedMemes = [];
+  async function refreshMemes() {
+    try {
+      const raw = await fetchJson('https://api.imgflip.com/get_memes');
+      const data = JSON.parse(raw);
+      if (data.success) client.cachedMemes = data.data.memes.map(m => m.url);
+    } catch (e) {}
+  }
+  refreshMemes();
+  setInterval(refreshMemes, 6 * 60 * 60 * 1000); // Refresh every 6 hours
 
   setTimeout(() => {
     postDailyQuote();
@@ -837,12 +890,7 @@ client.on('interactionCreate', async (interaction) => {
       if (theme === 'sad') pool = SAD_QUOTES;
       else if (theme === 'motive') pool = ALL_QUOTES.filter(q => !SAD_QUOTES.includes(q));
       const q = pool[Math.floor(Math.random() * pool.length)];
-      const imgUrl = `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
-      const embed = new EmbedBuilder()
-        .setColor(0x2C2F33)
-        .setImage(imgUrl)
-        .setFooter({ text: 'Abigail 💕 • Manual Post' })
-        .setTimestamp();
+      const embed = client.makeQuoteEmbed(q, 'Manual Post');
       await ch.send({ embeds: [embed] });
       return interaction.reply({
         content: `📨 Quote posted in <#${channelId}>!`,
@@ -2497,14 +2545,8 @@ client.on('messageCreate', async (message) => {
         .setTimestamp();
       await message.channel.send({ embeds: [embed] });
       // Post first quote immediately
-      const q = SAD_QUOTES[Math.floor(Math.random() * SAD_QUOTES.length)];
-      const imgUrl = `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
-      const qEmbed = new EmbedBuilder()
-        .setColor(0x2C2F33)
-        .setImage(imgUrl)
-        .setFooter({ text: 'Abigail 💕 • First Quote!' })
-        .setTimestamp();
-      await ch.send({ embeds: [qEmbed] });
+      const q = ALL_QUOTES[Math.floor(Math.random() * ALL_QUOTES.length)];
+      await ch.send({ embeds: [client.makeQuoteEmbed(q, 'First Quote!')] });
     } catch (e) {
       message.reply('Failed to setup. Check permissions.').catch(() => {});
     }
@@ -2611,13 +2653,22 @@ client.on('messageCreate', async (message) => {
 
   /* ── .meme ── */
   if (msgContent === '.meme') {
-    const memes = [
-      'https://i.imgflip.com/4acd7j.jpg','https://i.imgflip.com/4t0m5.jpg','https://i.imgflip.com/2fm6x.jpg',
-      'https://i.imgflip.com/30b1gx.jpg','https://i.imgflip.com/4/1h7in3.jpg','https://i.imgflip.com/4/3umnzg.jpg',
-      'https://i.imgflip.com/4/4t0m5.jpg','https://i.imgflip.com/4/2fm6x.jpg','https://i.imgflip.com/4/g0rjno.jpg',
-      'https://i.imgflip.com/4/1otk96.jpg','https://i.imgflip.com/4/261o6j.jpg','https://i.imgflip.com/4/4m0p5l.jpg',
-    ];
-    const url = memes[Math.floor(Math.random() * memes.length)];
+    let url;
+    if (client.cachedMemes && client.cachedMemes.length > 0) {
+      url = client.cachedMemes[Math.floor(Math.random() * client.cachedMemes.length)];
+    } else {
+      // Fallback hardcoded memes
+      const memes = [
+        'https://i.imgflip.com/30b1gx.jpg','https://i.imgflip.com/1g8my4.jpg','https://i.imgflip.com/1ur9b0.jpg',
+        'https://i.imgflip.com/3oevdk.jpg','https://i.imgflip.com/3lmzyx.jpg','https://i.imgflip.com/2fm6x.jpg',
+        'https://i.imgflip.com/28j0te.jpg','https://i.imgflip.com/1c1uej.jpg','https://i.imgflip.com/26am.jpg',
+        'https://i.imgflip.com/1otk96.jpg','https://i.imgflip.com/1b42wl.jpg','https://i.imgflip.com/1bij.jpg',
+        'https://i.imgflip.com/1wz1x.jpg','https://i.imgflip.com/145qvv.jpg','https://i.imgflip.com/gtj5t.jpg',
+        'https://i.imgflip.com/19vcz0.jpg','https://i.imgflip.com/2gnnjh.jpg','https://i.imgflip.com/2tzo2k.jpg',
+        'https://i.imgflip.com/3gdsh1.jpg','https://i.imgflip.com/54hjww.jpg',
+      ];
+      url = memes[Math.floor(Math.random() * memes.length)];
+    }
     const embed = new EmbedBuilder().setColor(0xFFD700).setImage(url).setFooter({ text: 'Abigail 💕' }).setTimestamp();
     return message.channel.send({ embeds: [embed] });
   }

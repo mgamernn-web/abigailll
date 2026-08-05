@@ -42,14 +42,11 @@ function pickQuote() {
   return ALL_QUOTES[Math.floor(Math.random() * ALL_QUOTES.length)];
 }
 
-function makeQuoteImageUrl(q) {
-  return `https://api.popcat.xyz/quote?text=${encodeURIComponent(q.text)}&author=${encodeURIComponent(q.author)}`;
-}
-
 function makeQuoteEmbed(q, label) {
   return new EmbedBuilder()
     .setColor(0x2C2F33)
-    .setImage(makeQuoteImageUrl(q))
+    .setTitle('🖤 Daily Quote')
+    .setDescription(`*"${q.text}"*\n\n— **${q.author}**`)
     .setFooter({ text: `Abigail 💕${label ? ' • ' + label : ''}` })
     .setTimestamp();
 }
@@ -151,8 +148,8 @@ module.exports = {
       .setColor(0x2C2F33)
       .setTitle('🖤 Daily Quotes — Setup Complete!')
       .setDescription(
-        `Quotes with image cards will be posted every **24 hours** in **#${channel.name}**\n\n` +
-        `Each quote is generated as a beautiful image card with the text and author.`
+        `Quotes will be posted every **24 hours** in **#${channel.name}**\n\n` +
+        `Uses zenquotes API for fresh quotes + local sad/motivational collection.`
       )
       .addFields(
         { name: '📌 Channel', value: `<#${channel.id}>`, inline: true },
