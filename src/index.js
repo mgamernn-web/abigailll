@@ -3154,7 +3154,7 @@ client.on('messageCreate', async (message) => {
       return message.reply('🚫 Only the bot owner and trusted users can use this command!').catch(() => {});
     }
 
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+    if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
       return message.reply('❌ I need **Manage Channels** permission to set slowmode!').catch(() => {});
     }
 
