@@ -27,22 +27,22 @@ module.exports = {
       sub
         .setName('add')
         .setDescription('Add a highlight keyword for yourself or another user (max 10)')
-        .addUserOption(opt =>
-          opt.setName('user').setDescription('Target user (optional — defaults to you)'),
-        )
         .addStringOption(opt =>
           opt.setName('keyword').setDescription('The keyword to highlight').setRequired(true).setMaxLength(30),
+        )
+        .addUserOption(opt =>
+          opt.setName('user').setDescription('Target user (optional — defaults to you)'),
         ),
     )
     .addSubcommand(sub =>
       sub
         .setName('remove')
         .setDescription('Remove a highlight keyword from yourself or another user')
-        .addUserOption(opt =>
-          opt.setName('user').setDescription('Target user (optional — defaults to you)'),
-        )
         .addStringOption(opt =>
           opt.setName('keyword').setDescription('The keyword to remove').setRequired(true),
+        )
+        .addUserOption(opt =>
+          opt.setName('user').setDescription('Target user (optional — defaults to you)'),
         ),
     )
     .addSubcommand(sub =>
