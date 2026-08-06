@@ -3243,6 +3243,89 @@ client.on('messageCreate', async (message) => {
   }
 
   /* ═══════════════════════════════════════════
+     📋 .cmds — Show All Bot Commands
+     ═══════════════════════════════════════════ */
+
+  if (/^[.!]cmds$/.test(msgContent) || /^[.!]commands$/.test(msgContent)) {
+    const isOwner = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || (client.trustedUsers.get(message.guild.id) || new Set()).has(message.author.id);
+
+    const generalCmds = [
+      { name: '📋 `.cmds`', value: 'Show this command list', inline: true },
+      { name: 'ℹ️ `.info`', value: 'Bot info & stats', inline: true },
+      { name: '🖥️ `.serverinfo`', value: 'Server information', inline: true },
+      { name: '👤 `.avatar [@user]`', value: 'Show user avatar', inline: true },
+      { name: '🕐 `.uptime`', value: 'Bot uptime', inline: true },
+      { name: '🤖 `.ping`', value: 'Bot latency check', inline: true },
+      { name: '🎭 `.afk [reason]`', value: 'Go AFK', inline: true },
+      { name: '8ball `.8ball <q>`', value: 'Magic 8 Ball', inline: true },
+    ];
+
+    const hlCmds = [
+      { name: '📝 `.hl add [@user] <word>`', value: 'Add highlight keyword', inline: true },
+      { name: '🗑️ `.hl remove [@user] <word>`', value: 'Remove keyword', inline: true },
+      { name: '📋 `.hl list [@user]`', value: 'Show highlights', inline: true },
+      { name: '🧹 `.hl clear`', value: 'Clear all highlights', inline: true },
+    ];
+
+    const modCmds = [
+      { name: '🔒 `.lock`', value: 'Lock current channel', inline: true },
+      { name: '🔓 `.unlock`', value: 'Unlock channel', inline: true },
+      { name: '🐢 `.sm <time>`', value: 'Set slowmode (5s, 2m, 1h)', inline: true },
+      { name: '🐢 `.sm off`', value: 'Remove slowmode', inline: true },
+      { name: '🔇 `.mute @user`', value: 'Mute user', inline: true },
+      { name: '🔊 `.unmute @user`', value: 'Unmute user', inline: true },
+      { name: '🔨 `.ban @user`', value: 'Ban user', inline: true },
+      { name: '✈️ `.kick @user`', value: 'Kick user', inline: true },
+    ];
+
+    const gameCmds = [
+      { name: '🐺 `w.start`', value: 'Start Werewolf game', inline: true },
+      { name: '📋 `w.help`', value: 'Werewolf help', inline: true },
+      { name: '🃏 `hc.start`', value: 'Start card game', inline: true },
+    ];
+
+    const ownerCmds = isOwner ? [
+      { name: '🔇 `.shut @user`', value: 'Auto-delete user msgs', inline: true },
+      { name: '🧛 `.dracula @user`', value: 'Unshut user', inline: true },
+      { name: '❄️ `.snow @user`', value: 'Unshut (alt)', inline: true },
+      { name: '🔍 `.snipe`', value: 'Last deleted msg', inline: true },
+      { name: '📜 `.snipelist`', value: 'All deleted msgs', inline: true },
+      { name: '👋 `.afkbreak @user`', value: 'Break AFK', inline: true },
+      { name: '👑 `.trusted add @user`', value: 'Add trusted user', inline: true },
+      { name: '👑 `.trusted remove @user`', value: 'Remove trusted', inline: true },
+      { name: '👑 `.trusted list`', value: 'List trusted users', inline: true },
+    ] : [];
+
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle('🤖 Abigail — Command List')
+      .setDescription(`Total **${generalCmds.length + hlCmds.length + modCmds.length + gameCmds.length + ownerCmds.length}** commands available!`)
+      .addFields(
+        { name: '💬 General Commands', value: '─────────────', inline: false },
+        ...generalCmds,
+        { name: '\n🔔 Highlight Commands', value: '─────────────', inline: false },
+        ...hlCmds,
+        { name: '\n🛡️ Moderation Commands', value: '─────────────', inline: false },
+        ...modCmds,
+        { name: '\n🎮 Game Commands', value: '─────────────', inline: false },
+        ...gameCmds,
+      );
+
+    if (ownerCmds.length > 0) {
+      embed.addFields(
+        { name: '\n👑 Owner & Trusted Commands', value: '─────────────', inline: false },
+        ...ownerCmds,
+      );
+    }
+
+    embed
+      .setFooter({ text: `Abigail 💕 — ${isOwner ? 'Owner Mode' : 'User Mode'}` })
+      .setTimestamp();
+
+    return message.reply({ embeds: [embed] }).catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
      🐺 Werewolf Game Commands — Wolfia Style
      ═══════════════════════════════════════════ */
 
