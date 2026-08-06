@@ -3249,77 +3249,73 @@ client.on('messageCreate', async (message) => {
   if (/^[.!]cmds$/.test(msgContent) || /^[.!]commands$/.test(msgContent)) {
     const isOwner = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || (client.trustedUsers.get(message.guild.id) || new Set()).has(message.author.id);
 
-    const generalCmds = [
-      { name: '📋 `.cmds`', value: 'Show this command list', inline: true },
-      { name: 'ℹ️ `.info`', value: 'Bot info & stats', inline: true },
-      { name: '🖥️ `.serverinfo`', value: 'Server information', inline: true },
-      { name: '👤 `.avatar [@user]`', value: 'Show user avatar', inline: true },
-      { name: '🕐 `.uptime`', value: 'Bot uptime', inline: true },
-      { name: '🤖 `.ping`', value: 'Bot latency check', inline: true },
-      { name: '🎭 `.afk [reason]`', value: 'Go AFK', inline: true },
-      { name: '8ball `.8ball <q>`', value: 'Magic 8 Ball', inline: true },
-    ];
+    let desc = '';
 
-    const hlCmds = [
-      { name: '📝 `.hl add [@user] <word>`', value: 'Add highlight keyword', inline: true },
-      { name: '🗑️ `.hl remove [@user] <word>`', value: 'Remove keyword', inline: true },
-      { name: '📋 `.hl list [@user]`', value: 'Show highlights', inline: true },
-      { name: '🧹 `.hl clear`', value: 'Clear all highlights', inline: true },
-    ];
+    // General
+    desc += '**💬 General Commands**\n';
+    desc += '```\n';
+    desc += '.cmds        — Show this command list\n';
+    desc += '.info        — Bot info & stats\n';
+    desc += '.serverinfo  — Server information\n';
+    desc += '.avatar @user— Show user avatar\n';
+    desc += '.uptime      — Bot uptime\n';
+    desc += '.ping        — Bot latency check\n';
+    desc += '.afk [reason]— Go AFK\n';
+    desc += '.8ball <q>   — Magic 8 Ball\n';
+    desc += '```\n\n';
 
-    const modCmds = [
-      { name: '🔒 `.lock`', value: 'Lock current channel', inline: true },
-      { name: '🔓 `.unlock`', value: 'Unlock channel', inline: true },
-      { name: '🐢 `.sm <time>`', value: 'Set slowmode (5s, 2m, 1h)', inline: true },
-      { name: '🐢 `.sm off`', value: 'Remove slowmode', inline: true },
-      { name: '🔇 `.mute @user`', value: 'Mute user', inline: true },
-      { name: '🔊 `.unmute @user`', value: 'Unmute user', inline: true },
-      { name: '🔨 `.ban @user`', value: 'Ban user', inline: true },
-      { name: '✈️ `.kick @user`', value: 'Kick user', inline: true },
-    ];
+    // Highlights
+    desc += '**🔔 Highlight Commands**\n';
+    desc += '```\n';
+    desc += '.hl add [@user] <word>   — Add highlight keyword\n';
+    desc += '.hl remove [@user] <word>— Remove keyword\n';
+    desc += '.hl list [@user]         — Show highlights\n';
+    desc += '.hl clear                 — Clear all highlights\n';
+    desc += '```\n\n';
 
-    const gameCmds = [
-      { name: '🐺 `w.start`', value: 'Start Werewolf game', inline: true },
-      { name: '📋 `w.help`', value: 'Werewolf help', inline: true },
-      { name: '🃏 `hc.start`', value: 'Start card game', inline: true },
-    ];
+    // Moderation
+    desc += '**🛡️ Moderation Commands**\n';
+    desc += '```\n';
+    desc += '.lock          — Lock current channel\n';
+    desc += '.unlock        — Unlock channel\n';
+    desc += '.sm <time>     — Set slowmode (5s, 2m, 1h)\n';
+    desc += '.sm off        — Remove slowmode\n';
+    desc += '.mute @user    — Mute user\n';
+    desc += '.unmute @user  — Unmute user\n';
+    desc += '.ban @user     — Ban user\n';
+    desc += '.kick @user    — Kick user\n';
+    desc += '```\n\n';
 
-    const ownerCmds = isOwner ? [
-      { name: '🔇 `.shut @user`', value: 'Auto-delete user msgs', inline: true },
-      { name: '🧛 `.dracula @user`', value: 'Unshut user', inline: true },
-      { name: '❄️ `.snow @user`', value: 'Unshut (alt)', inline: true },
-      { name: '🔍 `.snipe`', value: 'Last deleted msg', inline: true },
-      { name: '📜 `.snipelist`', value: 'All deleted msgs', inline: true },
-      { name: '👋 `.afkbreak @user`', value: 'Break AFK', inline: true },
-      { name: '👑 `.trusted add @user`', value: 'Add trusted user', inline: true },
-      { name: '👑 `.trusted remove @user`', value: 'Remove trusted', inline: true },
-      { name: '👑 `.trusted list`', value: 'List trusted users', inline: true },
-    ] : [];
+    // Games
+    desc += '**🎮 Game Commands**\n';
+    desc += '```\n';
+    desc += 'w.start        — Start Werewolf game\n';
+    desc += 'w.help        — Werewolf help\n';
+    desc += 'hc.start       — Start card game\n';
+    desc += '```\n';
+
+    // Owner & Trusted (only show if owner)
+    if (isOwner) {
+      desc += '\n**👑 Owner & Trusted Commands**\n';
+      desc += '```\n';
+      desc += '.shut @user       — Auto-delete user msgs\n';
+      desc += '.dracula @user    — Unshut user\n';
+      desc += '.snow @user       — Unshut (alt)\n';
+      desc += '.snipe            — Last deleted msg\n';
+      desc += '.snipelist        — All deleted msgs\n';
+      desc += '.afkbreak @user   — Break AFK\n';
+      desc += '.trusted add @user   — Add trusted user\n';
+      desc += '.trusted remove @user— Remove trusted\n';
+      desc += '.trusted list        — List trusted users\n';
+      desc += '.trusted clear       — Clear all trusted\n';
+      desc += '```\n';
+    }
 
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle('🤖 Abigail — Command List')
-      .setDescription(`Total **${generalCmds.length + hlCmds.length + modCmds.length + gameCmds.length + ownerCmds.length}** commands available!`)
-      .addFields(
-        { name: '💬 General Commands', value: '─────────────', inline: false },
-        ...generalCmds,
-        { name: '\n🔔 Highlight Commands', value: '─────────────', inline: false },
-        ...hlCmds,
-        { name: '\n🛡️ Moderation Commands', value: '─────────────', inline: false },
-        ...modCmds,
-        { name: '\n🎮 Game Commands', value: '─────────────', inline: false },
-        ...gameCmds,
-      );
-
-    if (ownerCmds.length > 0) {
-      embed.addFields(
-        { name: '\n👑 Owner & Trusted Commands', value: '─────────────', inline: false },
-        ...ownerCmds,
-      );
-    }
-
-    embed
-      .setFooter({ text: `Abigail 💕 — ${isOwner ? 'Owner Mode' : 'User Mode'}` })
+      .setDescription(desc)
+      .setFooter({ text: `Abigail 💕 — ${isOwner ? '👑 Owner Mode' : '👤 User Mode'}` })
       .setTimestamp();
 
     return message.reply({ embeds: [embed] }).catch(() => {});
