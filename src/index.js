@@ -2817,20 +2817,37 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  /* ── .mute @user (10m default) ── */
+  /* ── .mute @user [time] (10m default) ── */
   if (msgContent.startsWith('.mute ')) {
-    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    const isTrusted = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || trusted.has(message.author.id);
+    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers) && !isTrusted)
       return message.reply('You need **Moderate Members** permission.').catch(() => {});
     const target = message.mentions.members.first();
     if (!target) return message.reply('Tag someone: `.mute @user`').catch(() => {});
     if (!target.moderatable) return message.reply('Cannot moderate this user.').catch(() => {});
+
+    // Parse time argument
+    const muteArgs = message.content.trim().split(/\s+/);
+    let duration = 10 * 60 * 1000; // default 10 min
+    let display = '10 minutes';
+    if (muteArgs[2]) {
+      const t = muteArgs[2].toLowerCase();
+      if (t.endsWith('s')) { duration = Math.min(parseInt(t) * 1000, 403200000); display = `${parseInt(t)} seconds`; }
+      else if (t.endsWith('m')) { duration = Math.min(parseInt(t) * 60 * 1000, 403200000); display = `${parseInt(t)} minutes`; }
+      else if (t.endsWith('h')) { duration = Math.min(parseInt(t) * 3600 * 1000, 403200000); display = `${parseInt(t)} hours`; }
+      else if (t.endsWith('d')) { duration = Math.min(parseInt(t) * 86400 * 1000, 403200000); display = `${parseInt(t)} days`; }
+      else { duration = Math.min(parseInt(t) * 60 * 1000, 403200000); display = `${parseInt(t)} minutes`; }
+    }
+
     try {
-      await target.timeout(10 * 60 * 1000, `Muted by ${message.author.tag}`);
+      await target.timeout(duration, `Muted by ${message.author.tag}`);
       const embed = new EmbedBuilder()
         .setColor(0xFF0000)
         .setTitle(`🔇 Muted`)
-        .setDescription(`**${target.user.tag}** has been muted for 10 minutes.`)
-        .setFooter({ text: `By ${message.member.displayName}` })
+        .setDescription(`**${target.user.tag}** has been muted for **${display}**.`)
+        .addFields({ name: '⏱️ Duration', value: display, inline: true }, { name: '👮 By', value: message.member.displayName, inline: true })
+        .setFooter({ text: `Abigail 💕` })
         .setTimestamp();
       await message.channel.send({ embeds: [embed] });
     } catch (e) {
@@ -2841,7 +2858,9 @@ client.on('messageCreate', async (message) => {
 
   /* ── .unmute @user ── */
   if (msgContent.startsWith('.unmute ')) {
-    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    const isTrusted = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || trusted.has(message.author.id);
+    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers) && !isTrusted)
       return message.reply('You need **Moderate Members** permission.').catch(() => {});
     const target = message.mentions.members.first();
     if (!target) return message.reply('Tag someone: `.unmute @user`').catch(() => {});
