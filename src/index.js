@@ -3074,8 +3074,6 @@ client.on('messageCreate', async (message) => {
      to all owner-level commands (.sm, .shut, etc.)
      ═══════════════════════════════════════════ */
 
-  if (!client.trustedUsers) client.trustedUsers = new Map(); // guildId -> Set of userIds
-
   if (msgContent.startsWith('.trusted') || msgContent.startsWith('!trusted')) {
     if (message.author.id !== BOT_OWNER_ID) {
       return message.reply('🚫 Only the bot owner can manage trusted users!').catch(() => {});
