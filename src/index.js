@@ -2076,8 +2076,9 @@ client.on('messageCreate', async (message) => {
 
   // .shut or !shut @user/<userID>
   if (/^[.!]shut/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2107,8 +2108,9 @@ client.on('messageCreate', async (message) => {
 
   // .dracula or !dracula @user/<userID> — unshut
   if (/^[.!]dracula/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2136,8 +2138,9 @@ client.on('messageCreate', async (message) => {
 
   // .snow or !snow @user/<userID> — unshut (same as .dracula)
   if (/^[.!]snow/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2165,8 +2168,9 @@ client.on('messageCreate', async (message) => {
 
   // .afkbreak or !afkbreak @user/<userID> — break someone's AFK
   if (/^[.!]afkbreak/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner and Snow can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2274,8 +2278,9 @@ client.on('messageCreate', async (message) => {
 
   // .snipe or !snipe — see last deleted message
   if (/^[.!]snipe$/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     const channelSnipes = client.snipes.get(message.channel.id);
     if (!channelSnipes || channelSnipes.length === 0) {
@@ -2298,8 +2303,9 @@ client.on('messageCreate', async (message) => {
 
   // .snipelist or !snipelist — see all deleted messages in channel (paginated)
   if (/^[.!]snipelist$/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     const channelSnipes = client.snipes.get(message.channel.id);
     if (!channelSnipes || channelSnipes.length === 0) {
@@ -3035,6 +3041,205 @@ client.on('messageCreate', async (message) => {
     }
 
     return message.reply('❌ Unknown subcommand. Use `.hl help` to see available commands.').catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
+     👑 Trusted Users System — .trusted
+     Owner can add/remove users who get access
+     to all owner-level commands (.sm, .shut, etc.)
+     ═══════════════════════════════════════════ */
+
+  if (!client.trustedUsers) client.trustedUsers = new Map(); // guildId -> Set of userIds
+
+  if (msgContent.startsWith('.trusted') || msgContent.startsWith('!trusted')) {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return message.reply('🚫 Only the bot owner can manage trusted users!').catch(() => {});
+    }
+    const tArgs = message.content.trim().split(/\s+/);
+    const tSub = (tArgs[1] || '').toLowerCase();
+
+    // .trusted add @user
+    if (tSub === 'add') {
+      const tTarget = message.mentions.users.first();
+      if (!tTarget) {
+        return message.reply('❌ Usage: `.trusted add @user`').catch(() => {});
+      }
+      if (tTarget.id === BOT_OWNER_ID) {
+        return message.reply('❌ The bot owner is already trusted!').catch(() => {});
+      }
+      if (!client.trustedUsers.has(message.guild.id)) client.trustedUsers.set(message.guild.id, new Set());
+      if (client.trustedUsers.get(message.guild.id).has(tTarget.id)) {
+        return message.reply(`✅ **${tTarget.username}** is already a trusted user!`).catch(() => {});
+      }
+      client.trustedUsers.get(message.guild.id).add(tTarget.id);
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0x57F287)
+        .setTitle('✅ Trusted User Added')
+        .setDescription(`**${tTarget.username}** (<@${tTarget.id}>) now has access to all bot commands!`)
+        .addFields(
+          { name: '👤 User', value: `${tTarget.username} (${tTarget.id})`, inline: true },
+          { name: '🏠 Server', value: message.guild.name, inline: true },
+        )
+        .setFooter({ text: 'Abigail 💕 — Trusted Users' })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    // .trusted remove @user
+    if (tSub === 'remove' || tSub === 'rm' || tSub === 'del') {
+      const tTarget = message.mentions.users.first();
+      if (!tTarget) {
+        return message.reply('❌ Usage: `.trusted remove @user`').catch(() => {});
+      }
+      if (client.trustedUsers.has(message.guild.id)) {
+        client.trustedUsers.get(message.guild.id).delete(tTarget.id);
+      }
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0xED4245)
+        .setTitle('🗑️ Trusted User Removed')
+        .setDescription(`**${tTarget.username}** no longer has access to bot commands.`)
+        .setFooter({ text: 'Abigail 💕 — Trusted Users' })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    // .trusted list
+    if (tSub === 'list' || !tArgs[1]) {
+      const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+      if (trusted.size === 0) {
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setColor(0x2C2F33)
+          .setTitle('👑 Trusted Users')
+          .setDescription('No trusted users set. Use `.trusted add @user` to add one!')
+          .setFooter({ text: 'Abigail 💕 — Trusted Users' })
+          .setTimestamp()] }).catch(() => {});
+      }
+      const list = [...trusted].map((id, i) => `\`${i + 1}.\` <@${id}> (\`${id}\`)`).join('\n');
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('👑 Trusted Users')
+        .setDescription(list)
+        .setFooter({ text: `Abigail 💕 — ${trusted.size} trusted user(s)` })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    // .trusted clear
+    if (tSub === 'clear') {
+      const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+      const count = trusted.size;
+      trusted.clear && trusted.clear();
+      if (client.trustedUsers.has(message.guild.id)) {
+        client.trustedUsers.get(message.guild.id).clear();
+      }
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0xED4245)
+        .setTitle('🗑️ All Trusted Users Cleared')
+        .setDescription(`Removed **${count}** trusted user(s).`)
+        .setFooter({ text: 'Abigail 💕 — Trusted Users' })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    return message.reply('❌ Unknown subcommand. Usage: `.trusted add/remove/list/clear`').catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
+     🐢 .sm — Slowmode Command
+     Set channel slowmode. Owner + trusted users only.
+     Usage: .sm <seconds>
+     ═══════════════════════════════════════════ */
+
+  if (/^[.!]sm\b/.test(msgContent)) {
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    const isTrusted = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || trusted.has(message.author.id);
+
+    if (!isTrusted) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this command!').catch(() => {});
+    }
+
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+      return message.reply('❌ I need **Manage Channels** permission to set slowmode!').catch(() => {});
+    }
+
+    const smArgs = message.content.trim().split(/\s+/);
+    const timeVal = smArgs[1];
+
+    // .sm off / 0 — remove slowmode
+    if (!timeVal || timeVal.toLowerCase() === 'off' || timeVal === '0') {
+      try {
+        await message.channel.setRateLimitPerUser(0);
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setColor(0x57F287)
+          .setTitle('🐢 Slowmode Removed')
+          .setDescription('Channel slowmode has been **disabled**. Everyone can chat freely!')
+          .addFields({ name: '⏱️ Slowmode', value: 'Off (0s)', inline: true })
+          .setFooter({ text: `Set by ${message.author.tag}` })
+          .setTimestamp()] }).catch(() => {});
+      } catch (e) {
+        return message.reply('❌ Failed to remove slowmode. Check my permissions!').catch(() => {});
+      }
+    }
+
+    // Parse time — support s/m/h suffixes
+    let seconds = 0;
+    const parsed = timeVal.toLowerCase();
+    if (parsed.endsWith('s')) {
+      seconds = parseInt(parsed);
+    } else if (parsed.endsWith('m')) {
+      seconds = parseInt(parsed) * 60;
+    } else if (parsed.endsWith('h')) {
+      seconds = parseInt(parsed) * 3600;
+    } else {
+      seconds = parseInt(timeVal);
+    }
+
+    if (isNaN(seconds) || seconds < 0) {
+      return message.reply('❌ Invalid time! Usage: `.sm <seconds>`, `.sm 5s`, `.sm 2m`, `.sm 1h`, or `.sm off`').catch(() => {});
+    }
+
+    if (seconds > 21600) {
+      return message.reply('❌ Maximum slowmode is **6 hours** (21600 seconds)!').catch(() => {});
+    }
+
+    if (seconds === 0) {
+      try {
+        await message.channel.setRateLimitPerUser(0);
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setColor(0x57F287)
+          .setTitle('🐢 Slowmode Removed')
+          .setDescription('Channel slowmode has been **disabled**!')
+          .setFooter({ text: `Set by ${message.author.tag}` })
+          .setTimestamp()] }).catch(() => {});
+      } catch (e) {
+        return message.reply('❌ Failed to remove slowmode!').catch(() => {});
+      }
+    }
+
+    try {
+      await message.channel.setRateLimitPerUser(seconds);
+      let display = '';
+      if (seconds >= 3600) {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        display = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+      } else if (seconds >= 60) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        display = secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+      } else {
+        display = `${seconds}s`;
+      }
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🐢 Slowmode Set')
+        .setDescription(`Channel slowmode has been set to **${display}**!`)
+        .addFields(
+          { name: '⏱️ Duration', value: `${seconds} seconds (${display})`, inline: true },
+          { name: '👤 Set By', value: message.author.tag, inline: true },
+          { name: '📢 Channel', value: `<#${message.channel.id}>`, inline: true },
+        )
+        .setFooter({ text: 'Use `.sm off` to disable slowmode' })
+        .setTimestamp()] }).catch(() => {});
+    } catch (e) {
+      return message.reply('❌ Failed to set slowmode. Check my permissions!').catch(() => {});
+    }
   }
 
   /* ═══════════════════════════════════════════
