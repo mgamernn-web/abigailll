@@ -595,6 +595,23 @@ client.shutUsers = new Map();
 client.dailyQuoteChannels = new Map();
 client.dailyQuoteIntervals = new Map();
 client.dailyQuoteThemes = new Map();
+client.dailyQuoteLastPosted = new Map(); // guildId -> timestamp
+
+// Scenic images for quote embeds
+const QUOTE_IMAGES = [
+  'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1504198453319-5ce911bafcde?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1559825481-12a05cc00344?w=600&h=400&fit=crop',
+];
 
 const SAD_QUOTES = [
   { text: 'The saddest thing about betrayal is that it never comes from your enemies.', author: 'Unknown' },
@@ -771,31 +788,16 @@ client.once(Events.ClientReady, async () => {
   }
 
   // Store helper on client for use outside this block
-  // Generate quote IMAGE using placehold.co (works in Discord embeds)
-  client.makeQuoteImageUrl = function(q) {
-    const colors = [
-      { bg: '1a1a2e', fg: 'e0e0e0' },  // dark navy
-      { bg: '16213e', fg: 'ffffff' },  // dark blue
-      { bg: '0f3460', fg: 'e0e0e0' },  // navy
-      { bg: '2C2F33', fg: 'ffffff' },  // discord dark
-      { bg: '1B1B2F', fg: 'e8d5b7' },  // midnight gold
-      { bg: '162447', fg: 'e8d5b7' },  // dark teal
-      { bg: '1F4068', fg: 'E0AFA0' },  // ocean rose
-      { bg: '2B2D42', fg: 'EDF2F4' },  // charcoal white
-      { bg: '3D3D3D', fg: 'FFD700' },  // dark gold
-      { bg: '2D132C', fg: 'EE4540' },  // dark crimson
-    ];
-    const c = colors[Math.floor(Math.random() * colors.length)];
-    const text = encodeURIComponent(q.text);
-    return `https://placehold.co/600x400/${c.bg}/${c.fg}/png?font=noto-sans&text=${text}`;
-  };
-
   client.makeQuoteEmbed = function(q, label) {
-    const url = client.makeQuoteImageUrl(q);
+    const img = QUOTE_IMAGES[Math.floor(Math.random() * QUOTE_IMAGES.length)];
+    const now = new Date();
+    const dateStr = `${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     return new EmbedBuilder()
-      .setColor(0x2C2F33)
-      .setImage(url)
-      .setFooter({ text: `— ${q.author}${label ? ' • ' + label : ''} • Abigail 💕` })
+      .setColor(0x5865F2)
+      .setTitle('✨ Daily Quote')
+      .setDescription(`*"${q.text}"*\n\n— **${q.author}**`)
+      .setImage(img)
+      .setFooter({ text: `Abigail 💖${label ? ' • ' + label : ''} • ${dateStr}` })
       .setTimestamp();
   };
 
@@ -805,9 +807,15 @@ client.once(Events.ClientReady, async () => {
     return sadWords.some(w => lower.includes(w));
   };
 
-  async function postDailyQuote() {
-    const today = new Date().toDateString();
+  async function postDailyQuote(force) {
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
     for (const [guildId, channelId] of client.dailyQuoteChannels) {
+      // Skip if already posted within 24hrs (unless force)
+      if (!force) {
+        const lastPosted = client.dailyQuoteLastPosted.get(guildId) || 0;
+        if (now - lastPosted < TWENTY_FOUR_HOURS) continue;
+      }
       const ch = client.channels.cache.get(channelId);
       if (!ch) continue;
       const theme = client.dailyQuoteThemes?.get(guildId) || 'all';
@@ -823,7 +831,6 @@ client.once(Events.ClientReady, async () => {
         if (parsed && parsed[0]) {
           const quoteText = parsed[0].q;
           const quoteAuthor = parsed[0].a;
-          // Filter by theme
           if (theme === 'all' || (theme === 'sad' && client.isSadQuote(quoteText)) || (theme === 'motive' && !client.isSadQuote(quoteText))) {
             q = { text: quoteText, author: quoteAuthor };
           }
@@ -833,8 +840,9 @@ client.once(Events.ClientReady, async () => {
       // Fallback to local quotes
       if (!q) q = pool[Math.floor(Math.random() * pool.length)];
 
-      const embed = client.makeQuoteEmbed(q, today);
+      const embed = client.makeQuoteEmbed(q);
       ch.send({ embeds: [embed] }).catch(() => {});
+      client.dailyQuoteLastPosted.set(guildId, now);
     }
   }
 
@@ -851,8 +859,9 @@ client.once(Events.ClientReady, async () => {
   setInterval(refreshMemes, 6 * 60 * 60 * 1000); // Refresh every 6 hours
 
   setTimeout(() => {
-    postDailyQuote();
-    setInterval(postDailyQuote, 24 * 60 * 60 * 1000);
+    // Don't auto-post on startup — only post if 24hrs passed
+    postDailyQuote(false);
+    setInterval(() => postDailyQuote(false), 24 * 60 * 60 * 1000);
   }, 5000);
 
 });
