@@ -1,0 +1,27 @@
+{
+  "name": "sweetheart-bot",
+  "version": "2.4.0",
+  "description": "A Discord bot with AFK, Mimic, Hand Cricket, Translation and more",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/migrate.js && node src/index.js",
+    "deploy": "node src/deploy-commands.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "afk",
+    "discordjs",
+    "supabase",
+    "handcricket",
+    "werewolf"
+  ],
+  "author": "Dracula345336",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.43.0",
+    "@vitalets/google-translate-api": "^9.2.1",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
+  }
+}
