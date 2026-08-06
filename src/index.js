@@ -1670,6 +1670,12 @@ const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
+  // Initialize client stores once
+  if (!client.shutUsers) client.shutUsers = new Map();
+  if (!client.snipes) client.snipes = new Map();
+  if (!client.highlights) client.highlights = new Map();
+  if (!client.trustedUsers) client.trustedUsers = new Map();
+
   /* ── Auto-Mod: Ban Words Filter (N-word + Hindi gaali) ── */
   if (message.guild && message.member) {
     const botHasManageMsg = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageMessages);
