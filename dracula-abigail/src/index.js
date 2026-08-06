@@ -2831,7 +2831,8 @@ client.on('messageCreate', async (message) => {
       return message.reply('You need **Moderate Members** permission.').catch(() => {});
     const target = message.mentions.members.first();
     if (!target) return message.reply('Tag someone: `.mute @user`').catch(() => {});
-    if (!target.moderatable) return message.reply('Cannot moderate this user.').catch(() => {});
+    if (target.id === message.author.id) return message.reply("You can't mute yourself!").catch(() => {});
+    if (target.id === client.user.id) return message.reply("Nice try! 🙄").catch(() => {});
 
     // Parse time argument
     const muteArgs = message.content.trim().split(/\s+/);
@@ -2857,7 +2858,7 @@ client.on('messageCreate', async (message) => {
         .setTimestamp();
       await message.channel.send({ embeds: [embed] });
     } catch (e) {
-      message.reply('Failed to mute. Check permissions/role hierarchy.').catch(() => {});
+      message.reply('❌ Failed to mute! Bot\'s role must be **above** the target\'s role in server settings.').catch(() => {});
     }
     return;
   }
