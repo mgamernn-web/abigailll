@@ -4511,8 +4511,7 @@ client.on('messageCreate', async (message) => {
         .setDescription(returnDesc)
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setTimestamp();
-      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
-      if (returnMsg) setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
+      const returnMsg = await message.author.send({ embeds: [embed] }).catch(() => null);
       afkCache.delete(cacheKey);
       // Remove role & nickname from cache hit
       const isReturnOwner = message.guild.ownerId === message.author.id;
@@ -4556,11 +4555,8 @@ client.on('messageCreate', async (message) => {
         .setDescription(returnDesc)
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setTimestamp();
-      // Send in server channel — auto-delete after 1s
-      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
-      if (returnMsg) {
-        setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
-      }
+      // Send in DM only, not in server channel
+      const returnMsg = await message.author.send({ embeds: [embed] }).catch(() => null);
 
       const isReturnOwner = message.guild.ownerId === message.author.id;
       const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
