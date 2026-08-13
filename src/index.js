@@ -3609,6 +3609,62 @@ client.on('messageCreate', async (message) => {
   }
 
   /* ═══════════════════════════════════════════
+     🔥 .roast @user — Fun Roast
+     ═══════════════════════════════════════════ */
+
+  if (msgContent.startsWith('.roast ') || msgContent === '.roast') {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Tag someone to roast: `.roast @user`').catch(() => {});
+
+    const roasts = [
+      `You're like a cloud. When you disappear, it's a beautiful day. ☁️ bye ${target.username} 👋`,
+      `${target.username}, I'd insult you but I can't think of anything that hasn't already been said about you. 🗑️`,
+      `${target.username}, you're the reason they put instructions on shampoo bottles. 🧴`,
+      `${target.username}, if you were any slower, you'd be going backwards. 🐌`,
+      `I'm not saying ${target.username} is stupid, but they asked me what comes after 'N' in the alphabet. 🤡`,
+      `${target.username}, you're like a software update — nobody asked for you and you make everything worse. 💻❌`,
+      `${target.username}, your personality is like a coin — rare and useless. 🪙`,
+      `${target.username}, you're proof that evolution can go in reverse. 🐒`,
+      `${target.username}, if ignorance is bliss, you must be the happiest person alive. 😇`,
+      `${target.username}, you're not a complete idiot — some parts are missing. 🧩`,
+      `${target.username}, I'd call you an idiot but that would be an insult to idiots worldwide. 🌍`,
+      `${target.username}, you have something on your face... oh wait, that's just your face. 🪞`,
+      `${target.username}, you're the kind of person who gets lost in a round room. 🔄`,
+      `${target.username}, your brain cells are on a strict diet — they're all starving. 🧠🚫`,
+      `${target.username}, if I had a dollar for every smart thing you said, I'd be in debt. 💸`,
+      `${target.username}, you're like a WiFi signal — weak and constantly dropping. 📶`,
+      `${target.username}, you have two parts of your brain — left and right. Left has nothing right, and right has nothing left. 🧠`,
+      `${target.username}, you're the reason we can't have nice things. 🙅`,
+      `${target.username}, calling you a genius would be the understatement of the century — of the millennium actually. 🏆🤡`,
+      `${target.username}, you're so boring, even your shadow left you. 👤`,
+    ];
+
+    const roast = roasts[Math.floor(Math.random() * roasts.length)];
+    const roastIntensities = [
+      { min: 0, label: 'mild 🌶️', color: 0xFFD700 },
+      { min: 5, label: 'medium 🌶️🌶️', color: 0xFF8C00 },
+      { min: 10, label: 'spicy 🌶️🌶️🌶️', color: 0xFF4500 },
+      { min: 15, label: 'nuclear ☢️', color: 0xFF0000 },
+    ];
+    const idx = roasts.indexOf(roast);
+    const intensity = [...roastIntensities].reverse().find(r => idx >= r.min);
+
+    const embed = new EmbedBuilder()
+      .setColor(intensity.color)
+      .setTitle(`🔥 Roast for ${target.username}`)
+      .setDescription(roast)
+      .addFields(
+        { name: '🔥 Roast Intensity', value: intensity.label, inline: true },
+        { name: '🎯 Roasted by', value: message.author.toString(), inline: true },
+      )
+      .setImage('https://media.tenor.com/zKrPjBNKxTQAAAAM/roasted-fire.gif')
+      .setFooter({ text: 'Abigail 💕 — Just for fun! No feelings harmed 😄' })
+      .setTimestamp();
+
+    return message.reply({ embeds: [embed] }).catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
      📊 .chatlb — Chat Leaderboard
      ═══════════════════════════════════════════ */
 
@@ -3673,6 +3729,7 @@ client.on('messageCreate', async (message) => {
     desc += '.8ball <q>    — Magic 8 Ball\n';
     desc += '.weather <city>— Weather info\n';
     desc += '.hack @user   — Fake hack animation (fun!)\n';
+    desc += '.roast @user  — Roast someone (fun!)\n';
     desc += '```\n\n';
 
     // Highlights
