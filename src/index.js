@@ -25,6 +25,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  AttachmentBuilder,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -592,9 +593,27 @@ client.mimicProtected = new Map();
 client.mimicLogChannel = new Map();
 client.afkBreakProtected = new Map();
 client.shutUsers = new Map();
+client.chatLeaderboard = new Map(); // guildId -> Map(userId -> count)
 client.dailyQuoteChannels = new Map();
 client.dailyQuoteIntervals = new Map();
 client.dailyQuoteThemes = new Map();
+client.dailyQuoteLastPosted = new Map(); // guildId -> timestamp
+
+// Scenic images for quote embeds
+const QUOTE_IMAGES = [
+  'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1504198453319-5ce911bafcde?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&h=400&fit=crop',
+  'https://images.unsplash.com/photo-1559825481-12a05cc00344?w=600&h=400&fit=crop',
+];
 
 const SAD_QUOTES = [
   { text: 'The saddest thing about betrayal is that it never comes from your enemies.', author: 'Unknown' },
@@ -717,6 +736,38 @@ client.once(Events.ClientReady, async () => {
       console.error('Failed to load mimic_protected:', err.message);
     }
 
+    // Load chat leaderboard from DB (persistent across restarts)
+    try {
+      const { data: clData, error: clErr } = await supabase
+        .from('chat_leaderboard')
+        .select('guild_id, user_id, message_count');
+      if (!clErr && clData) {
+        for (const row of clData) {
+          if (!client.chatLeaderboard.has(row.guild_id)) client.chatLeaderboard.set(row.guild_id, new Map());
+          client.chatLeaderboard.get(row.guild_id).set(row.user_id, row.message_count);
+        }
+        console.log(`✅ Loaded ${clData.length} chat leaderboard entries from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load chat_leaderboard:', err.message);
+    }
+
+    // Load trusted users from DB (persistent across restarts)
+    try {
+      const { data: tuData, error: tuErr } = await supabase
+        .from('trusted_users')
+        .select('guild_id, user_id');
+      if (!tuErr && tuData) {
+        for (const row of tuData) {
+          if (!client.trustedUsers.has(row.guild_id)) client.trustedUsers.set(row.guild_id, new Set());
+          client.trustedUsers.get(row.guild_id).add(row.user_id);
+        }
+        console.log(`✅ Loaded ${tuData.length} trusted user(s) from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load trusted_users:', err.message);
+    }
+
     // Load daily quote channels from DB (persistent across restarts)
     try {
       const { data: dqData, error: dqErr } = await supabase
@@ -771,31 +822,16 @@ client.once(Events.ClientReady, async () => {
   }
 
   // Store helper on client for use outside this block
-  // Generate quote IMAGE using placehold.co (works in Discord embeds)
-  client.makeQuoteImageUrl = function(q) {
-    const colors = [
-      { bg: '1a1a2e', fg: 'e0e0e0' },  // dark navy
-      { bg: '16213e', fg: 'ffffff' },  // dark blue
-      { bg: '0f3460', fg: 'e0e0e0' },  // navy
-      { bg: '2C2F33', fg: 'ffffff' },  // discord dark
-      { bg: '1B1B2F', fg: 'e8d5b7' },  // midnight gold
-      { bg: '162447', fg: 'e8d5b7' },  // dark teal
-      { bg: '1F4068', fg: 'E0AFA0' },  // ocean rose
-      { bg: '2B2D42', fg: 'EDF2F4' },  // charcoal white
-      { bg: '3D3D3D', fg: 'FFD700' },  // dark gold
-      { bg: '2D132C', fg: 'EE4540' },  // dark crimson
-    ];
-    const c = colors[Math.floor(Math.random() * colors.length)];
-    const text = encodeURIComponent(q.text);
-    return `https://placehold.co/600x400/${c.bg}/${c.fg}/png?font=noto-sans&text=${text}`;
-  };
-
   client.makeQuoteEmbed = function(q, label) {
-    const url = client.makeQuoteImageUrl(q);
+    const img = QUOTE_IMAGES[Math.floor(Math.random() * QUOTE_IMAGES.length)];
+    const now = new Date();
+    const dateStr = `${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     return new EmbedBuilder()
-      .setColor(0x2C2F33)
-      .setImage(url)
-      .setFooter({ text: `— ${q.author}${label ? ' • ' + label : ''} • Abigail 💕` })
+      .setColor(0x5865F2)
+      .setTitle('✨ Daily Quote')
+      .setDescription(`*"${q.text}"*\n\n— **${q.author}**`)
+      .setImage(img)
+      .setFooter({ text: `Abigail 💖${label ? ' • ' + label : ''} • ${dateStr}` })
       .setTimestamp();
   };
 
@@ -805,9 +841,15 @@ client.once(Events.ClientReady, async () => {
     return sadWords.some(w => lower.includes(w));
   };
 
-  async function postDailyQuote() {
-    const today = new Date().toDateString();
+  async function postDailyQuote(force) {
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
     for (const [guildId, channelId] of client.dailyQuoteChannels) {
+      // Skip if already posted within 24hrs (unless force)
+      if (!force) {
+        const lastPosted = client.dailyQuoteLastPosted.get(guildId) || 0;
+        if (now - lastPosted < TWENTY_FOUR_HOURS) continue;
+      }
       const ch = client.channels.cache.get(channelId);
       if (!ch) continue;
       const theme = client.dailyQuoteThemes?.get(guildId) || 'all';
@@ -823,7 +865,6 @@ client.once(Events.ClientReady, async () => {
         if (parsed && parsed[0]) {
           const quoteText = parsed[0].q;
           const quoteAuthor = parsed[0].a;
-          // Filter by theme
           if (theme === 'all' || (theme === 'sad' && client.isSadQuote(quoteText)) || (theme === 'motive' && !client.isSadQuote(quoteText))) {
             q = { text: quoteText, author: quoteAuthor };
           }
@@ -833,8 +874,9 @@ client.once(Events.ClientReady, async () => {
       // Fallback to local quotes
       if (!q) q = pool[Math.floor(Math.random() * pool.length)];
 
-      const embed = client.makeQuoteEmbed(q, today);
+      const embed = client.makeQuoteEmbed(q);
       ch.send({ embeds: [embed] }).catch(() => {});
+      client.dailyQuoteLastPosted.set(guildId, now);
     }
   }
 
@@ -851,8 +893,9 @@ client.once(Events.ClientReady, async () => {
   setInterval(refreshMemes, 6 * 60 * 60 * 1000); // Refresh every 6 hours
 
   setTimeout(() => {
-    postDailyQuote();
-    setInterval(postDailyQuote, 24 * 60 * 60 * 1000);
+    // Don't auto-post on startup — only post if 24hrs passed
+    postDailyQuote(false);
+    setInterval(() => postDailyQuote(false), 24 * 60 * 60 * 1000);
   }, 5000);
 
 });
@@ -1661,23 +1704,36 @@ const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  /* ── Auto-Mod: Ban Words Filter (N-word + Hindi gaali) ── */
-  if (message.guild && message.member) {
-    const botHasManageMsg = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageMessages);
-    if (botHasManageMsg) {
-      const raw = message.content.toLowerCase().replace(/[^a-z\s]/g, ''); // strip special chars
-      const isBanned = /n+i+g+g+e+r+|n+i+g+g+a+|ch+u+t+i+y+a+|b+h+o+s+d+i+k+e+|m+a+d+a+r+c+h+o+d+|b+e+h+n+c+h+o+d+|g+a+n+d+u+|l+a+n+d+e+|l+a+u+d+a+|m+u+t+h+|ch+u+t+|b+o+s+d+i+|r+a+n+d+i+|t+a+t+i+|c+h+u+t+y+a+|j+a+t+t+a+|h+a+r+a+m+i+|k+a+m+i+n+a+|s+u+a+r+|k+a+l+a+|t+a+t+t+i+/.test(raw);
-      if (isBanned) {
-        try { await message.delete(); } catch (e) {}
-        const warn = await message.channel.send(`🚫 <@${message.author.id}> — Watch your language! You've been timed out.`).catch(() => null);
-        if (warn) setTimeout(() => { warn.delete().catch(() => {}); }, 3000);
-        if (message.member && message.member.moderatable) {
-          try { await message.member.timeout(60 * 1000, 'Auto-mod: banned language'); } catch (e) {}
-        }
-        return;
+  // Initialize client stores once
+  if (!client.shutUsers) client.shutUsers = new Map();
+  if (!client.snipes) client.snipes = new Map();
+  if (!client.highlights) client.highlights = new Map();
+  if (!client.trustedUsers) client.trustedUsers = new Map();
+  if (!client.chatLeaderboard) client.chatLeaderboard = new Map();
+
+  /* ── 📊 Chat Leaderboard Counter (persistent via Supabase) ── */
+  if (message.guild) {
+    if (!client.chatLeaderboard.has(message.guild.id)) client.chatLeaderboard.set(message.guild.id, new Map());
+    const guildCounts = client.chatLeaderboard.get(message.guild.id);
+    guildCounts.set(message.author.id, (guildCounts.get(message.author.id) || 0) + 1);
+
+    // Batch DB upsert every 50 messages per guild to avoid spamming DB
+    const guildMsgCount = guildCounts.get('__dbPending') || 0;
+    guildCounts.set('__dbPending', guildMsgCount + 1);
+    if (guildMsgCount + 1 >= 50) {
+      guildCounts.set('__dbPending', 0);
+      const supabase = require('./db');
+      if (supabase) {
+        // Upsert this user's count
+        supabase.from('chat_leaderboard').upsert(
+          { user_id: message.author.id, guild_id: message.guild.id, username: message.author.username, message_count: guildCounts.get(message.author.id), updated_at: new Date().toISOString() },
+          { onConflict: 'user_id,guild_id' }
+        ).then(() => {}).catch(err => console.error('ChatLB upsert err:', err.message));
       }
     }
   }
+
+  /* ── Auto-Mod: DISABLED — gaali filter turned off ── */
 
   /* ── 🔔 Highlight System — DM user when their keyword is mentioned ── */
   if (message.guild && client.highlights && client.highlights.size > 0) {
@@ -1695,13 +1751,13 @@ client.on('messageCreate', async (message) => {
             const hlEmbed = new EmbedBuilder()
               .setColor(0x5865F2)
               .setTitle(`🔔 Highlight: "${kw}"`)
-              .setURL(message.url)
               .setDescription(message.content.substring(0, 500))
               .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
               .addFields(
                 { name: '📌 Channel', value: `#${message.channel.name}`, inline: true },
                 { name: '🏢 Server', value: message.guild.name, inline: true },
               )
+              .addFields({ name: '💬 Jump to Message', value: `[Click here to view](${message.url})` })
               .setFooter({ text: 'Abigail 💕 — Highlights' })
               .setTimestamp();
             user.send({ embeds: [hlEmbed] }).catch(() => {});
@@ -2066,8 +2122,9 @@ client.on('messageCreate', async (message) => {
 
   // .shut or !shut @user/<userID>
   if (/^[.!]shut/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2097,8 +2154,9 @@ client.on('messageCreate', async (message) => {
 
   // .dracula or !dracula @user/<userID> — unshut
   if (/^[.!]dracula/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2126,8 +2184,9 @@ client.on('messageCreate', async (message) => {
 
   // .snow or !snow @user/<userID> — unshut (same as .dracula)
   if (/^[.!]snow/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2155,8 +2214,9 @@ client.on('messageCreate', async (message) => {
 
   // .afkbreak or !afkbreak @user/<userID> — break someone's AFK
   if (/^[.!]afkbreak/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner and Snow can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
     if (!target) {
@@ -2264,8 +2324,9 @@ client.on('messageCreate', async (message) => {
 
   // .snipe or !snipe — see last deleted message
   if (/^[.!]snipe$/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     const channelSnipes = client.snipes.get(message.channel.id);
     if (!channelSnipes || channelSnipes.length === 0) {
@@ -2288,8 +2349,9 @@ client.on('messageCreate', async (message) => {
 
   // .snipelist or !snipelist — see all deleted messages in channel (paginated)
   if (/^[.!]snipelist$/.test(msgContent)) {
-    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
-      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID && !trusted.has(message.author.id)) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this!').catch(() => {});
     }
     const channelSnipes = client.snipes.get(message.channel.id);
     if (!channelSnipes || channelSnipes.length === 0) {
@@ -2509,7 +2571,7 @@ client.on('messageCreate', async (message) => {
         { name: '🎯 Roles', value: `${g.roles.cache.size}`, inline: true },
         { name: '🎉 Boosts', value: `Level ${g.premiumTier} (${g.premiumSubscriptionCount || 0})`, inline: true },
         { name: '📅 Created', value: `<t:${Math.floor(g.createdTimestamp / 1000)}:R>`, inline: true },
-        { name: '🔒 Verification', value: g.verificationLevel, inline: true },
+        { name: '🔒 Verification', value: ['None', 'Low', 'Medium', 'High', 'Highest'][g.verificationLevel] || 'None', inline: true },
       )
       .setFooter({ text: `Requested by ${message.member.displayName}` })
       .setTimestamp();
@@ -2801,31 +2863,51 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  /* ── .mute @user (10m default) ── */
+  /* ── .mute @user [time] (10m default) ── */
   if (msgContent.startsWith('.mute ')) {
-    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    const isTrusted = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || trusted.has(message.author.id);
+    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers) && !isTrusted)
       return message.reply('You need **Moderate Members** permission.').catch(() => {});
     const target = message.mentions.members.first();
     if (!target) return message.reply('Tag someone: `.mute @user`').catch(() => {});
-    if (!target.moderatable) return message.reply('Cannot moderate this user.').catch(() => {});
+    if (target.id === message.author.id) return message.reply("You can't mute yourself!").catch(() => {});
+    if (target.id === client.user.id) return message.reply("Nice try! 🙄").catch(() => {});
+
+    // Parse time argument
+    const muteArgs = message.content.trim().split(/\s+/);
+    let duration = 10 * 60 * 1000; // default 10 min
+    let display = '10 minutes';
+    if (muteArgs[2]) {
+      const t = muteArgs[2].toLowerCase();
+      if (t.endsWith('s')) { duration = Math.min(parseInt(t) * 1000, 403200000); display = `${parseInt(t)} seconds`; }
+      else if (t.endsWith('m')) { duration = Math.min(parseInt(t) * 60 * 1000, 403200000); display = `${parseInt(t)} minutes`; }
+      else if (t.endsWith('h')) { duration = Math.min(parseInt(t) * 3600 * 1000, 403200000); display = `${parseInt(t)} hours`; }
+      else if (t.endsWith('d')) { duration = Math.min(parseInt(t) * 86400 * 1000, 403200000); display = `${parseInt(t)} days`; }
+      else { duration = Math.min(parseInt(t) * 60 * 1000, 403200000); display = `${parseInt(t)} minutes`; }
+    }
+
     try {
-      await target.timeout(10 * 60 * 1000, `Muted by ${message.author.tag}`);
+      await target.timeout(duration, `Muted by ${message.author.tag}`);
       const embed = new EmbedBuilder()
         .setColor(0xFF0000)
         .setTitle(`🔇 Muted`)
-        .setDescription(`**${target.user.tag}** has been muted for 10 minutes.`)
-        .setFooter({ text: `By ${message.member.displayName}` })
+        .setDescription(`**${target.user.tag}** has been muted for **${display}**.`)
+        .addFields({ name: '⏱️ Duration', value: display, inline: true }, { name: '👮 By', value: message.member.displayName, inline: true })
+        .setFooter({ text: `Abigail 💕` })
         .setTimestamp();
       await message.channel.send({ embeds: [embed] });
     } catch (e) {
-      message.reply('Failed to mute. Check permissions/role hierarchy.').catch(() => {});
+      message.reply('❌ Failed to mute! Bot\'s role must be **above** the target\'s role in server settings.').catch(() => {});
     }
     return;
   }
 
   /* ── .unmute @user ── */
   if (msgContent.startsWith('.unmute ')) {
-    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    const isTrusted = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || trusted.has(message.author.id);
+    if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers) && !isTrusted)
       return message.reply('You need **Moderate Members** permission.').catch(() => {});
     const target = message.mentions.members.first();
     if (!target) return message.reply('Tag someone: `.unmute @user`').catch(() => {});
@@ -2886,6 +2968,768 @@ client.on('messageCreate', async (message) => {
       message.reply('Failed to unlock channel.').catch(() => {});
     }
     return;
+  }
+
+  /* ═══════════════════════════════════════════
+     🔔 Highlight Prefix Commands — .hl
+     ═══════════════════════════════════════════ */
+
+  if (msgContent === '.hl' || msgContent.startsWith('.hl ')) {
+    const MAX_HL = 10;
+    if (!client.highlights) client.highlights = new Map();
+    const hlArgs = message.content.trim().split(/\s+/);
+    const subCmd = (hlArgs[1] || '').toLowerCase();
+
+    /* ── .hl list [@user] ── */
+    if (subCmd === 'list' || !hlArgs[1]) {
+      const targetUser = message.mentions.users.first();
+      const targetId = targetUser ? targetUser.id : message.author.id;
+      const targetTag = targetUser ? targetUser.tag : message.author.tag;
+      const key = `${message.guild.id}-${targetId}`;
+      const keywords = client.highlights.get(key) || [];
+      if (keywords.length === 0) {
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setColor(0x2C2F33)
+          .setTitle(`🔔 ${targetTag}'s Highlights`)
+          .setDescription(`No highlights set. Use \`.hl add${targetUser ? ' @' + targetUser.username : ''} <keyword>\` to add one!`)
+          .setFooter({ text: `Abigail 💕 — 0/${MAX_HL}` })
+          .setTimestamp()] }).catch(() => {});
+      }
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`🔔 ${targetTag}'s Highlights`)
+        .setDescription(keywords.map((h, i) => `\`${i + 1}.\` **${h}**`).join('\n'))
+        .setFooter({ text: `Abigail 💕 — ${keywords.length}/${MAX_HL}` })
+        .setTimestamp();
+      return message.reply({ embeds: [embed] }).catch(() => {});
+    }
+
+    /* ── .hl add [@user] <keyword> ── */
+    if (subCmd === 'add') {
+      const rest = hlArgs.slice(2);
+      const targetUser = message.mentions.users.first();
+      const keyword = targetUser ? rest.slice(1).join(' ').toLowerCase().trim() : rest.join(' ').toLowerCase().trim();
+      const targetId = targetUser ? targetUser.id : message.author.id;
+      const targetTag = targetUser ? targetUser.tag : message.author.tag;
+      if (!keyword || keyword.length < 2) {
+        return message.reply('❌ Keyword must be at least 2 characters. Usage: `.hl add [@user] <keyword>`').catch(() => {});
+      }
+      const key = `${message.guild.id}-${targetId}`;
+      if (!client.highlights.has(key)) client.highlights.set(key, []);
+      const keywords = client.highlights.get(key);
+      if (keywords.length >= MAX_HL) {
+        return message.reply(`❌ **${targetTag}** already has **${MAX_HL}** highlights! Remove one first with \`.hl remove\`.`).catch(() => {});
+      }
+      if (keywords.includes(keyword)) {
+        return message.reply(`❌ "${keyword}" is already in **${targetTag}'s** highlights!`).catch(() => {});
+      }
+      keywords.push(keyword);
+      const forLabel = targetUser ? `for **${targetTag}**` : '';
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('✅ Highlight Added!')
+        .setDescription(`Keyword **"${keyword}"** is now being monitored ${forLabel}.`)
+        .addFields(
+          { name: '📌 Keyword', value: keyword, inline: true },
+          { name: '👤 User', value: targetTag, inline: true },
+          { name: '📊 Count', value: `${keywords.length}/${MAX_HL}`, inline: true },
+          { name: '💡 Tip', value: `${targetTag} will get a DM when someone mentions this keyword.`, inline: true },
+        )
+        .setFooter({ text: 'Abigail 💕 — Highlights' })
+        .setTimestamp();
+      return message.reply({ embeds: [embed] }).catch(() => {});
+    }
+
+    /* ── .hl remove [@user] <keyword> ── */
+    if (subCmd === 'remove' || subCmd === 'rm' || subCmd === 'del') {
+      const rest = hlArgs.slice(2);
+      const targetUser = message.mentions.users.first();
+      const keyword = targetUser ? rest.slice(1).join(' ').toLowerCase().trim() : rest.join(' ').toLowerCase().trim();
+      const targetId = targetUser ? targetUser.id : message.author.id;
+      const targetTag = targetUser ? targetUser.tag : message.author.tag;
+      if (!keyword) {
+        return message.reply('❌ Provide a keyword to remove. Usage: `.hl remove [@user] <keyword>`').catch(() => {});
+      }
+      const key = `${message.guild.id}-${targetId}`;
+      const keywords = client.highlights.get(key) || [];
+      const idx = keywords.indexOf(keyword);
+      if (idx === -1) {
+        return message.reply(`❌ "${keyword}" is not in **${targetTag}'s** highlights!`).catch(() => {});
+      }
+      keywords.splice(idx, 1);
+      const embed = new EmbedBuilder()
+        .setColor(0xED4245)
+        .setTitle('🗑️ Highlight Removed')
+        .setDescription(`Keyword **"${keyword}"** removed from **${targetTag}'s** highlights.`)
+        .addFields(
+          { name: '👤 User', value: targetTag, inline: true },
+          { name: '📊 Remaining', value: `${keywords.length}/${MAX_HL}`, inline: true },
+        )
+        .setFooter({ text: 'Abigail 💕 — Highlights' })
+        .setTimestamp();
+      return message.reply({ embeds: [embed] }).catch(() => {});
+    }
+
+    /* ── .hl clear ── */
+    if (subCmd === 'clear') {
+      const key = `${message.guild.id}-${message.author.id}`;
+      const keywords = client.highlights.get(key) || [];
+      if (keywords.length === 0) {
+        return message.reply('You have no highlights to clear!').catch(() => {});
+      }
+      const count = keywords.length;
+      keywords.length = 0;
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0xED4245)
+        .setTitle('🗑️ All Highlights Cleared')
+        .setDescription(`Removed **${count}** highlight(s).`)
+        .setFooter({ text: 'Abigail 💕 — Highlights' })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    /* ── .hl help ── */
+    if (subCmd === 'help') {
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🔔 Highlight Commands — Help')
+        .setDescription('Set keywords and get **DM** when someone mentions them!')
+        .addFields(
+          { name: '📝 `.hl add [@user] <keyword>`', value: 'Add highlight for yourself or another user', inline: false },
+          { name: '🗑️ `.hl remove [@user] <keyword>`', value: 'Remove highlight from yourself or another user', inline: false },
+          { name: '📋 `.hl list [@user]`', value: 'Show highlights (yours or another user\'s)', inline: false },
+          { name: '🧹 `.hl clear`', value: 'Remove all YOUR highlights', inline: false },
+          { name: '📊 Limit', value: `Max **${MAX_HL}** highlights per user per server`, inline: false },
+          { name: '💡 Tip', value: 'Mention a user to manage their highlights!', inline: false },
+        )
+        .setFooter({ text: 'Abigail 💕 — Highlights' })
+        .setTimestamp();
+      return message.reply({ embeds: [embed] }).catch(() => {});
+    }
+
+    return message.reply('❌ Unknown subcommand. Use `.hl help` to see available commands.').catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
+     👑 Trusted Users System — .trusted
+     Owner can add/remove users who get access
+     to all owner-level commands (.sm, .shut, etc.)
+     ═══════════════════════════════════════════ */
+
+  if (msgContent.startsWith('.trusted') || msgContent.startsWith('!trusted')) {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return message.reply('🚫 Only the bot owner can manage trusted users!').catch(() => {});
+    }
+    const tArgs = message.content.trim().split(/\s+/);
+    const tSub = (tArgs[1] || '').toLowerCase();
+
+    // .trusted add @user
+    if (tSub === 'add') {
+      const tTarget = message.mentions.users.first();
+      if (!tTarget) {
+        return message.reply('❌ Usage: `.trusted add @user`').catch(() => {});
+      }
+      if (tTarget.id === BOT_OWNER_ID) {
+        return message.reply('❌ The bot owner is already trusted!').catch(() => {});
+      }
+      if (!client.trustedUsers.has(message.guild.id)) client.trustedUsers.set(message.guild.id, new Set());
+      if (client.trustedUsers.get(message.guild.id).has(tTarget.id)) {
+        return message.reply(`✅ **${tTarget.username}** is already a trusted user!`).catch(() => {});
+      }
+      client.trustedUsers.get(message.guild.id).add(tTarget.id);
+      // Save to DB
+      const supabase = require('./db');
+      if (supabase) {
+        supabase.from('trusted_users').upsert(
+          { user_id: tTarget.id, guild_id: message.guild.id, added_by: message.author.id },
+          { onConflict: 'user_id,guild_id' }
+        ).then(() => {}).catch(err => console.error('Trusted add DB err:', err.message));
+      }
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0x57F287)
+        .setTitle('✅ Trusted User Added')
+        .setDescription(`**${tTarget.username}** (<@${tTarget.id}>) now has access to all bot commands!`)
+        .addFields(
+          { name: '👤 User', value: `${tTarget.username} (${tTarget.id})`, inline: true },
+          { name: '🏠 Server', value: message.guild.name, inline: true },
+        )
+        .setFooter({ text: 'Abigail 💕 — Trusted Users' })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    // .trusted remove @user
+    if (tSub === 'remove' || tSub === 'rm' || tSub === 'del') {
+      const tTarget = message.mentions.users.first();
+      if (!tTarget) {
+        return message.reply('❌ Usage: `.trusted remove @user`').catch(() => {});
+      }
+      if (client.trustedUsers.has(message.guild.id)) {
+        client.trustedUsers.get(message.guild.id).delete(tTarget.id);
+      }
+      // Remove from DB
+      const supabase = require('./db');
+      if (supabase) {
+        supabase.from('trusted_users').delete()
+          .eq('user_id', tTarget.id)
+          .eq('guild_id', message.guild.id)
+          .then(() => {}).catch(err => console.error('Trusted remove DB err:', err.message));
+      }
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0xED4245)
+        .setTitle('🗑️ Trusted User Removed')
+        .setDescription(`**${tTarget.username}** no longer has access to bot commands.`)
+        .setFooter({ text: 'Abigail 💕 — Trusted Users' })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    // .trusted list
+    if (tSub === 'list' || !tArgs[1]) {
+      const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+      if (trusted.size === 0) {
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setColor(0x2C2F33)
+          .setTitle('👑 Trusted Users')
+          .setDescription('No trusted users set. Use `.trusted add @user` to add one!')
+          .setFooter({ text: 'Abigail 💕 — Trusted Users' })
+          .setTimestamp()] }).catch(() => {});
+      }
+      const list = [...trusted].map((id, i) => `\`${i + 1}.\` <@${id}> (\`${id}\`)`).join('\n');
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('👑 Trusted Users')
+        .setDescription(list)
+        .setFooter({ text: `Abigail 💕 — ${trusted.size} trusted user(s)` })
+        .setTimestamp()] }).catch(() => {});
+    }
+
+    // .trusted clear — DISABLED for safety, use .trusted remove @user instead
+    if (tSub === 'clear') {
+      return message.reply('🚫 `.trusted clear` is disabled! Remove users one by one with `.trusted remove @user` to prevent accidental wipes.').catch(() => {});
+    }
+
+    return message.reply('❌ Unknown subcommand. Usage: `.trusted add/remove/list/clear`').catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
+     🐢 .sm — Slowmode Command
+     Set channel slowmode. Owner + trusted users only.
+     Usage: .sm <seconds>
+     ═══════════════════════════════════════════ */
+
+  if (/^[.!]sm\b/.test(msgContent)) {
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    const isTrusted = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || trusted.has(message.author.id);
+
+    if (!isTrusted) {
+      return message.reply('🚫 Only the bot owner and trusted users can use this command!').catch(() => {});
+    }
+
+    if (!message.guild.members.me.permissions.has(PermissionFlagsBits.ManageChannels)) {
+      return message.reply('❌ I need **Manage Channels** permission to set slowmode!').catch(() => {});
+    }
+
+    const smArgs = message.content.trim().split(/\s+/);
+    const timeVal = smArgs[1];
+
+    // .sm off / 0 — remove slowmode
+    if (!timeVal || timeVal.toLowerCase() === 'off' || timeVal === '0') {
+      try {
+        await message.channel.setRateLimitPerUser(0);
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setColor(0x57F287)
+          .setTitle('🐢 Slowmode Removed')
+          .setDescription('Channel slowmode has been **disabled**. Everyone can chat freely!')
+          .addFields({ name: '⏱️ Slowmode', value: 'Off (0s)', inline: true })
+          .setFooter({ text: `Set by ${message.author.tag}` })
+          .setTimestamp()] }).catch(() => {});
+      } catch (e) {
+        return message.reply('❌ Failed to remove slowmode. Check my permissions!').catch(() => {});
+      }
+    }
+
+    // Parse time — support s/m/h suffixes
+    let seconds = 0;
+    const parsed = timeVal.toLowerCase();
+    if (parsed.endsWith('s')) {
+      seconds = parseInt(parsed);
+    } else if (parsed.endsWith('m')) {
+      seconds = parseInt(parsed) * 60;
+    } else if (parsed.endsWith('h')) {
+      seconds = parseInt(parsed) * 3600;
+    } else {
+      seconds = parseInt(timeVal);
+    }
+
+    if (isNaN(seconds) || seconds < 0) {
+      return message.reply('❌ Invalid time! Usage: `.sm <seconds>`, `.sm 5s`, `.sm 2m`, `.sm 1h`, or `.sm off`').catch(() => {});
+    }
+
+    if (seconds > 21600) {
+      return message.reply('❌ Maximum slowmode is **6 hours** (21600 seconds)!').catch(() => {});
+    }
+
+    if (seconds === 0) {
+      try {
+        await message.channel.setRateLimitPerUser(0);
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setColor(0x57F287)
+          .setTitle('🐢 Slowmode Removed')
+          .setDescription('Channel slowmode has been **disabled**!')
+          .setFooter({ text: `Set by ${message.author.tag}` })
+          .setTimestamp()] }).catch(() => {});
+      } catch (e) {
+        return message.reply('❌ Failed to remove slowmode!').catch(() => {});
+      }
+    }
+
+    try {
+      await message.channel.setRateLimitPerUser(seconds);
+      let display = '';
+      if (seconds >= 3600) {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        display = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+      } else if (seconds >= 60) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        display = secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+      } else {
+        display = `${seconds}s`;
+      }
+      return message.reply({ embeds: [new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🐢 Slowmode Set')
+        .setDescription(`Channel slowmode has been set to **${display}**!`)
+        .addFields(
+          { name: '⏱️ Duration', value: `${seconds} seconds (${display})`, inline: true },
+          { name: '👤 Set By', value: message.author.tag, inline: true },
+          { name: '📢 Channel', value: `<#${message.channel.id}>`, inline: true },
+        )
+        .setFooter({ text: 'Use `.sm off` to disable slowmode' })
+        .setTimestamp()] }).catch(() => {});
+    } catch (e) {
+      return message.reply('❌ Failed to set slowmode. Check my permissions!').catch(() => {});
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     🎭 .mimic @user [message] — Mimic with attachment support
+     ═══════════════════════════════════════════ */
+
+  if (msgContent.startsWith('.mimic ')) {
+    const trusted = client.trustedUsers.get(message.guild.id) || new Set();
+    const isTrusted = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || trusted.has(message.author.id);
+    const isServerOwner = message.guild.ownerId === message.author.id;
+    if (!isTrusted && !isServerOwner)
+      return message.reply('🚫 No mimic access!').catch(() => {});
+
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('Tag someone: `.mimic @user message`').catch(() => {});
+
+    // Check protected
+    if (target.id !== message.author.id && target.id !== BOT_OWNER_ID) {
+      let isProtected = false;
+      if (client.mimicProtected) {
+        const gp = client.mimicProtected.get(message.guild.id);
+        isProtected = gp && gp.has(target.id);
+      }
+      if (isProtected) return message.reply(`🛡️ **${target.displayName}** is mimic-protected!`).catch(() => {});
+    }
+
+    // Check webhook perm
+    if (!message.guild.members.me.permissionsIn(message.channel).has(PermissionFlagsBits.ManageWebhooks))
+      return message.reply('🚫 I need **Manage Webhooks** permission!').catch(() => {});
+
+    // Extract message text (everything after .mimic @user)
+    const mimicText = message.content.replace(/\.mimic\s+<@!?\d+>\s*/, '').trim();
+
+    // Check if replying to a message
+    const replyMsg = message.reference ? await message.fetchReference().catch(() => null) : null;
+
+    try {
+      const webhook = await message.channel.createWebhook({
+        name: target.displayName,
+        avatar: target.user.displayAvatarURL({ dynamic: true, size: 256 }),
+        reason: `Mimic by ${message.author.tag}`,
+      });
+
+      const sendOpts = {
+        username: target.displayName,
+        avatarURL: target.user.displayAvatarURL({ dynamic: true, size: 256 }),
+        allowedMentions: { repliedUser: true },
+      };
+
+      // Text content
+      if (mimicText) sendOpts.content = mimicText;
+
+      // Reply reference — so mimic message shows as reply in chat
+      if (replyMsg) {
+        sendOpts.messageReference = replyMsg.id;
+      }
+
+      // Attachments from message — directly forward all attached files
+      if (message.attachments.size > 0) {
+        const files = [];
+        for (const [, att] of message.attachments) {
+          try {
+            const res = await fetch(att.url, { headers: { 'User-Agent': 'Mozilla/5.0' }, redirect: 'follow' });
+            if (res.ok) {
+              const buffer = Buffer.from(await res.arrayBuffer());
+              if (buffer.length > 0) files.push(new AttachmentBuilder(buffer, { name: att.name }));
+            }
+          } catch (e) {
+            console.error(`Mimic prefix: fetch failed for ${att.name}:`, e.message);
+          }
+        }
+        if (files.length > 0) sendOpts.files = files;
+      }
+
+      await webhook.send(sendOpts);
+      await webhook.delete('Mimic cleanup');
+
+      /* ── Log to mimic-logs channel ── */
+      if (!client.mimicLog) client.mimicLog = new Map();
+      const logKey = `${message.guild.id}-${message.author.id}`;
+      const userLog = client.mimicLog.get(logKey) || [];
+      userLog.unshift({
+        target: target.user,
+        targetName: target.displayName,
+        message: mimicText || '(no text)',
+        attachment: message.attachments.size > 0 ? [...message.attachments.values()].map(a => a.name).join(', ') : null,
+        replyTo: replyMsg ? `${replyMsg.author.tag}: ${(replyMsg.content || '').substring(0, 80)}` : null,
+        channel: message.channel,
+        timestamp: new Date(),
+      });
+      if (userLog.length > 100) userLog.pop();
+      client.mimicLog.set(logKey, userLog);
+
+      // Send log embed
+      let logChannelId = client.mimicLogChannel ? client.mimicLogChannel.get(message.guild.id) : null;
+      if (logChannelId) {
+        try {
+          const logCh = await client.channels.fetch(logChannelId).catch(() => null);
+          if (logCh && logCh.isSendable()) {
+            const logParts = [
+              `┣ 🎭 **Mimicked:** ${target.displayName} (<@${target.id}>)`,
+              `┣ 👤 **By:** ${message.author.tag} (<@${message.author.id}>)`,
+              `┣ 📢 **Channel:** <#${message.channel.id}>`,
+              `┣ 💬 **Message:**\n> ${(mimicText || '(no text)').substring(0, 300)}`,
+            ];
+            if (message.attachments.size > 0) {
+              logParts.push(`┣ 📎 **Attachment(s):** ${[...message.attachments.values()].map(a => a.name).join(', ')}`);
+            }
+            if (replyMsg) {
+              logParts.push(`┣ ↩️ **Replying to:** ${replyMsg.author.tag}: "${(replyMsg.content || '').substring(0, 80)}"`);
+            }
+            logParts.push(`┗ ⏰ **Time:** <t:${Math.floor(Date.now() / 1000)}:R>`);
+
+            const logEmbed = new EmbedBuilder()
+              .setColor(0x2B2D31)
+              .setAuthor({ name: `🎭 ${message.author.tag} used .mimic`, iconURL: message.author.displayAvatarURL({ dynamic: true, size: 128 }) })
+              .setDescription('━━━━━━━━━━━━━━━━━━━\n' + logParts.join('\n'))
+              .setFooter({ text: `User ID: ${message.author.id} | Target ID: ${target.id}` })
+              .setTimestamp();
+            await logCh.send({ embeds: [logEmbed] });
+          }
+        } catch (err) { /* ignore log errors */ }
+      }
+
+      await message.react('🎭').catch(() => {});
+    } catch (err) {
+      message.reply(`💔 Mimic failed: **${err.message}**`).catch(() => {});
+    }
+    return;
+  }
+
+  /* ═══════════════════════════════════════════
+     🌤️ .weather <city> — Weather Info
+     ═══════════════════════════════════════════ */
+
+  if (msgContent.startsWith('.weather ')) {
+    const city = message.content.replace(/\.weather\s+/i, '').trim();
+    if (!city) return message.reply('❌ Usage: `.weather Delhi`').catch(() => {});
+
+    const loading = await message.reply('🌤️ Fetching weather...').catch(() => null);
+
+    try {
+      // Step 1: Geocode city name → lat/lon
+      const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!geoRes.ok) throw new Error('Geo API failed');
+      const geoData = await geoRes.json();
+      if (!geoData.results || geoData.results.length === 0) throw new Error('City not found');
+
+      const loc = geoData.results[0];
+      const lat = loc.latitude;
+      const lon = loc.longitude;
+      const locName = loc.name;
+      const country = loc.country;
+      const admin1 = loc.admin1 || '';
+      const tz = loc.timezone || 'auto';
+
+      // Step 2: Fetch current weather
+      const weatherRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,surface_pressure,cloud_cover&timezone=${encodeURIComponent(tz)}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      if (!weatherRes.ok) throw new Error('Weather API failed');
+      const weatherData = await weatherRes.json();
+      const cw = weatherData.current;
+
+      if (!cw) throw new Error('No weather data');
+
+      const temp = cw.temperature_2m;
+      const feelsLike = cw.apparent_temperature;
+      const humidity = cw.relative_humidity_2m;
+      const wind = cw.wind_speed_10m;
+      const pressure = cw.surface_pressure;
+      const cloudCover = cw.cloud_cover;
+      const precip = cw.precipitation;
+      const wc = cw.weather_code;
+      const isDay = 1; // open-meteo doesn't always return is_day in current
+
+      const weatherCodes = {
+        0: { desc: 'Clear sky', emoji: '☀️' },
+        1: { desc: 'Mainly clear', emoji: '🌤️' },
+        2: { desc: 'Partly cloudy', emoji: '⛅' },
+        3: { desc: 'Overcast', emoji: '☁️' },
+        45: { desc: 'Foggy', emoji: '🌫️' },
+        48: { desc: 'Rime fog', emoji: '🌫️' },
+        51: { desc: 'Light drizzle', emoji: '🌦️' },
+        53: { desc: 'Moderate drizzle', emoji: '🌦️' },
+        55: { desc: 'Dense drizzle', emoji: '🌦️' },
+        56: { desc: 'Freezing drizzle', emoji: '🌧️' },
+        57: { desc: 'Heavy freezing drizzle', emoji: '🌧️' },
+        61: { desc: 'Slight rain', emoji: '🌧️' },
+        63: { desc: 'Moderate rain', emoji: '🌧️' },
+        65: { desc: 'Heavy rain', emoji: '🌧️' },
+        66: { desc: 'Freezing rain', emoji: '🌧️' },
+        67: { desc: 'Heavy freezing rain', emoji: '🌧️' },
+        71: { desc: 'Slight snow', emoji: '🌨️' },
+        73: { desc: 'Moderate snow', emoji: '🌨️' },
+        75: { desc: 'Heavy snow', emoji: '❄️' },
+        77: { desc: 'Snow grains', emoji: '❄️' },
+        80: { desc: 'Slight rain showers', emoji: '🌦️' },
+        81: { desc: 'Moderate rain showers', emoji: '🌧️' },
+        82: { desc: 'Violent rain showers', emoji: '⛈️' },
+        85: { desc: 'Slight snow showers', emoji: '🌨️' },
+        86: { desc: 'Heavy snow showers', emoji: '❄️' },
+        95: { desc: 'Thunderstorm', emoji: '⛈️' },
+        96: { desc: 'Thunderstorm with hail', emoji: '⛈️' },
+        99: { desc: 'Thunderstorm with heavy hail', emoji: '⛈️' },
+      };
+
+      const weatherInfo = weatherCodes[wc] || { desc: 'Unknown', emoji: '🌤️' };
+
+      const embed = new EmbedBuilder()
+        .setColor(0x58B9FF)
+        .setTitle(`${weatherInfo.emoji} Weather in ${locName}, ${country}`)
+        .setDescription(`**${weatherInfo.desc}**${admin1 ? ` — ${admin1}` : ''}`)
+        .addFields(
+          { name: '🌡️ Temperature', value: `${temp}°C / ${(temp * 9/5 + 32).toFixed(1)}°F`, inline: true },
+          { name: '🤒 Feels Like', value: `${feelsLike}°C / ${(feelsLike * 9/5 + 32).toFixed(1)}°F`, inline: true },
+          { name: '💧 Humidity', value: `${humidity}%`, inline: true },
+          { name: '💨 Wind', value: `${wind} km/h`, inline: true },
+          { name: '📊 Pressure', value: `${Math.round(pressure)} hPa`, inline: true },
+          { name: '☁️ Cloud Cover', value: `${cloudCover}%`, inline: true },
+          { name: '🌧️ Precipitation', value: `${precip} mm`, inline: true },
+          { name: '🕐 Updated', value: cw.time ? `<t:${Math.floor(new Date(cw.time).getTime()/1000)}:R>` : 'N/A', inline: true },
+        )
+        .setFooter({ text: `Abigail 💕 — Weather | Open-Meteo` })
+        .setTimestamp();
+
+      if (loading) loading.edit({ content: null, embeds: [embed] }).catch(() => {});
+      else message.reply({ embeds: [embed] }).catch(() => {});
+    } catch (err) {
+      console.error('Weather fetch error:', err.message);
+      const errMsg = err.name === 'TimeoutError'
+        ? '❌ Weather request timed out! Try again.'
+        : `❌ City **"${city}"** not found! Try: \`.weather Delhi\``;
+      if (loading) loading.edit(errMsg).catch(() => {});
+      else message.reply(errMsg).catch(() => {});
+    }
+    return;
+  }
+
+  /* ═══════════════════════════════════════════
+     💻 .hack @user — Fake Hacking Animation
+     ═══════════════════════════════════════════ */
+
+  if (msgContent.startsWith('.hack ') || msgContent === '.hack') {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Tag someone to hack: `.hack @user`').catch(() => {});
+
+    const hackMsg = await message.reply({
+      content: `\`\`\`\n💻 Initializing hack on ${target.username}...\n⏳ Connecting to server...\`\`\``
+    }).catch(() => null);
+
+    if (!hackMsg) return;
+
+    const steps = [
+      { text: `💻 Initializing hack on ${target.username}...\n✅ Connected to proxy server\n⏳ Bypassing firewall...`, delay: 1500 },
+      { text: `💻 Hacking ${target.username}...\n✅ Firewall bypassed\n✅ Proxy server connected\n⏳ Injecting malware...`, delay: 1500 },
+      { text: `💻 Hacking ${target.username}...\n✅ Firewall bypassed\n✅ Proxy server connected\n✅ Malware injected\n⏳ Stealing data...`, delay: 1500 },
+      { text: `💻 Hacking ${target.username}...\n✅ Firewall bypassed\n✅ Proxy server connected\n✅ Malware injected\n✅ Data stolen: 2.4 GB\n⏳ Cracking password...`, delay: 1500 },
+      { text: `💻 Hacking ${target.username}...\n✅ Firewall bypassed\n✅ Proxy server connected\n✅ Malware injected\n✅ Data stolen: 2.4 GB\n✅ Password cracked: \`********\`\n⏳ Installing RAT...`, delay: 1500 },
+      { text: `💻 Hacking ${target.username}...\n✅ Firewall bypassed\n✅ Proxy server connected\n✅ Malware injected\n✅ Data stolen: 2.4 GB\n✅ Password cracked: \`********\`\n✅ RAT installed\n⏳ Accessing webcam...`, delay: 1500 },
+      { text: `💻 Hacking ${target.username}...\n✅ Firewall bypassed\n✅ Proxy server connected\n✅ Malware injected\n✅ Data stolen: 2.4 GB\n✅ Password cracked: \`********\`\n✅ RAT installed\n✅ Webcam accessed\n⏳ Downloading browser history...`, delay: 1500 },
+      { text: `💻 Hacking ${target.username}...\n✅ Firewall bypassed\n✅ Proxy server connected\n✅ Malware injected\n✅ Data stolen: 2.4 GB\n✅ Password cracked: \`********\`\n✅ RAT installed\n✅ Webcam accessed\n✅ Browser history downloaded\n⏳ Formatting hard drive...`, delay: 2000 },
+    ];
+
+    for (const step of steps) {
+      await new Promise(r => setTimeout(r, step.delay));
+      await hackMsg.edit({ content: `\`\`\`\n${step.text}\`\`\`` }).catch(() => {});
+    }
+
+    // Final reveal - it was a joke!
+    await new Promise(r => setTimeout(r, 1000));
+    const jokes = [
+      `😂 JK! I can't even hack a toaster! ${target.username} is safe... for now 👀`,
+      `🤡 April Fools! ...wait it's not April. Anyway ${target.username}, your data is safe... I think 😂`,
+      `💀 I was just kidding! If I could actually hack, would I be a Discord bot? ${target.username} chill 😂`,
+      `😏 That was close! ${target.username}'s password is probably still \`password123\` anyway 🤣`,
+      `😂 Fake hack complete! ${target.username} lives to see another day... but their browser history is STILL scary 👀`,
+    ];
+    const joke = jokes[Math.floor(Math.random() * jokes.length)];
+
+    const embed = new EmbedBuilder()
+      .setColor(0x00FF00)
+      .setTitle('💻 Hack Complete... NOT! 😂')
+      .setDescription(joke)
+      .addFields(
+        { name: '🎯 Target', value: `${target.username}`, inline: true },
+        { name: '🧑‍💻 Hacker', value: `${message.author.username}`, inline: true },
+        { name: '📊 Status', value: '100% FAKE', inline: true },
+      )
+      .setFooter({ text: 'Abigail 💕 — This was just a joke! Don\'t take it seriously 😄' })
+      .setTimestamp();
+
+    await hackMsg.edit({ content: null, embeds: [embed] }).catch(() => {});
+    return;
+  }
+
+  /* ═══════════════════════════════════════════
+     📊 .chatlb — Chat Leaderboard
+     ═══════════════════════════════════════════ */
+
+  if (/^[.!]chatlb$/.test(msgContent) || /^[.!]leaderboard$/.test(msgContent) || /^[.!]lb$/.test(msgContent)) {
+    if (!message.guild) return;
+
+    const guildCounts = client.chatLeaderboard ? client.chatLeaderboard.get(message.guild.id) : null;
+    if (!guildCounts || guildCounts.size === 0) {
+      return message.reply('📊 No messages tracked yet! Chat more to see the leaderboard.').catch(() => {});
+    }
+
+    // Sort by count descending, get top 15 (exclude internal keys)
+    const sorted = [...guildCounts.entries()]
+      .filter(([k]) => !k.startsWith('__'))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15);
+
+    const medals = ['🥇', '🥈', '🥉'];
+    const lbLines = sorted.map(([userId, count], i) => {
+      const rank = i < 3 ? medals[i] : `**${i + 1}.**`;
+      try {
+        const user = client.users.cache.get(userId) || { tag: `<@${userId}>`, username: 'Unknown' };
+        return `${rank} ${user.tag || user.username} — **${count.toLocaleString()}** msgs`;
+      } catch {
+        return `${rank} <@${userId}> — **${count.toLocaleString()}** msgs`;
+      }
+    });
+
+    const totalMsgs = [...guildCounts.entries()].filter(([k]) => !k.startsWith('__')).reduce((a, b) => a + b[1], 0);
+    const totalUsers = [...guildCounts.entries()].filter(([k]) => !k.startsWith('__')).length;
+
+    const embed = new EmbedBuilder()
+      .setColor(0xFEE75C)
+      .setTitle('📊 Chat Leaderboard')
+      .setDescription(lbLines.join('\n'))
+      .setFooter({ text: `Total: ${totalMsgs.toLocaleString()} messages | ${totalUsers} users tracked` })
+      .setTimestamp();
+
+    return message.reply({ embeds: [embed] }).catch(() => {});
+  }
+
+  /* ═══════════════════════════════════════════
+     📋 .cmds — Show All Bot Commands
+     ═══════════════════════════════════════════ */
+
+  if (/^[.!]cmds$/.test(msgContent) || /^[.!]commands$/.test(msgContent)) {
+    const isOwner = message.author.id === BOT_OWNER_ID || message.author.id === SNOW_ID || (client.trustedUsers.get(message.guild.id) || new Set()).has(message.author.id);
+
+    let desc = '';
+
+    // General
+    desc += '**💬 General Commands**\n';
+    desc += '```\n';
+    desc += '.cmds        — Show this command list\n';
+    desc += '.chatlb      — Chat leaderboard (top chatters)\n';
+    desc += '.info        — Bot info & stats\n';
+    desc += '.serverinfo  — Server information\n';
+    desc += '.avatar @user— Show user avatar\n';
+    desc += '.uptime      — Bot uptime\n';
+    desc += '.ping        — Bot latency check\n';
+    desc += '.afk [reason]— Go AFK\n';
+    desc += '.8ball <q>    — Magic 8 Ball\n';
+    desc += '.weather <city>— Weather info\n';
+    desc += '.hack @user   — Fake hack animation (fun!)\n';
+    desc += '```\n\n';
+
+    // Highlights
+    desc += '**🔔 Highlight Commands**\n';
+    desc += '```\n';
+    desc += '.hl add [@user] <word>   — Add highlight keyword\n';
+    desc += '.hl remove [@user] <word>— Remove keyword\n';
+    desc += '.hl list [@user]         — Show highlights\n';
+    desc += '.hl clear                 — Clear all highlights\n';
+    desc += '```\n\n';
+
+    // Moderation
+    desc += '**🛡️ Moderation Commands**\n';
+    desc += '```\n';
+    desc += '.lock          — Lock current channel\n';
+    desc += '.unlock        — Unlock channel\n';
+    desc += '.sm <time>     — Set slowmode (5s, 2m, 1h)\n';
+    desc += '.sm off        — Remove slowmode\n';
+    desc += '.mute @user    — Mute user\n';
+    desc += '.unmute @user  — Unmute user\n';
+    desc += '.ban @user     — Ban user\n';
+    desc += '.kick @user    — Kick user\n';
+    desc += '```\n\n';
+
+    // Games
+    desc += '**🎮 Game Commands**\n';
+    desc += '```\n';
+    desc += 'w.start        — Start Werewolf game\n';
+    desc += 'w.help        — Werewolf help\n';
+    desc += 'hc.start       — Start card game\n';
+    desc += '```\n';
+
+    // Owner & Trusted (only show if owner)
+    if (isOwner) {
+      desc += '\n**👑 Owner & Trusted Commands**\n';
+      desc += '```\n';
+      desc += '.shut @user       — Auto-delete user msgs\n';
+      desc += '.dracula @user    — Unshut user\n';
+      desc += '.snow @user       — Unshut (alt)\n';
+      desc += '.snipe            — Last deleted msg\n';
+      desc += '.snipelist        — All deleted msgs\n';
+      desc += '.afkbreak @user   — Break AFK\n';
+      desc += '.trusted add @user   — Add trusted user\n';
+      desc += '.trusted remove @user— Remove trusted\n';
+      desc += '.trusted list        — List trusted users\n';
+      desc += '.trusted clear       — Clear all trusted\n';
+      desc += '```\n';
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle('🤖 Abigail — Command List')
+      .setDescription(desc)
+      .setFooter({ text: `Abigail 💕 — ${isOwner ? '👑 Owner Mode' : '👤 User Mode'}` })
+      .setTimestamp();
+
+    return message.reply({ embeds: [embed] }).catch(() => {});
   }
 
   /* ═══════════════════════════════════════════
@@ -4072,7 +4916,7 @@ client.on('messageCreate', async (message) => {
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setTimestamp();
       const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
-      if (returnMsg) setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
+      if (returnMsg) setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1500);
       afkCache.delete(cacheKey);
       // Remove role & nickname from cache hit
       const isReturnOwner = message.guild.ownerId === message.author.id;
@@ -4116,11 +4960,9 @@ client.on('messageCreate', async (message) => {
         .setDescription(returnDesc)
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setTimestamp();
-      // Send in server channel — auto-delete after 1s
+      // Send in channel — auto-delete after 1.5s
       const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
-      if (returnMsg) {
-        setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1000);
-      }
+      if (returnMsg) setTimeout(() => { returnMsg.delete().catch(() => {}); }, 1500);
 
       const isReturnOwner = message.guild.ownerId === message.author.id;
       const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
