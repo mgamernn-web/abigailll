@@ -20,7 +20,6 @@
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.43.0",
-    "@vitalets/google-translate-api": "^9.2.1",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5"
   }
