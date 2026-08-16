@@ -2296,10 +2296,37 @@ client.on('messageCreate', async (message) => {
     }
 
     try {
-      const result = await translate(textToTranslate, { to: targetLang });
+      let result;
+      try {
+        result = await translate(textToTranslate, { to: targetLang });
+      } catch (innerErr) {
+        console.error('Translate API inner error:', innerErr.message);
+        // Fallback: try with explicit 'auto' from
+        try {
+          result = await translate(textToTranslate, { from: 'auto', to: targetLang });
+        } catch (fallbackErr) {
+          throw fallbackErr;
+        }
+      }
 
-      const srcCode = result.from?.language?.iso || 'auto';
-      const confidence = result.from?.language?.confidence;
+      // Safely extract source language (API structure varies)
+      let srcCode = 'auto';
+      let confidence = 0;
+      try {
+        if (result.from && result.from.language && result.from.language.iso) {
+          srcCode = result.from.language.iso;
+          confidence = result.from.language.confidence || 0;
+        } else if (result.raw && result.raw.src) {
+          srcCode = result.raw.src;
+        } else if (result.from && typeof result.from === 'object' && result.from.iso) {
+          srcCode = result.from.iso;
+        } else if (typeof result.from === 'string') {
+          srcCode = result.from;
+        }
+      } catch (e) {
+        console.error('Error extracting source lang:', e.message);
+        srcCode = 'auto';
+      }
       const srcFlag = TR_LANG_FLAGS[srcCode] || '🔍';
       const tgtFlag = TR_LANG_FLAGS[targetLang] || '🌐';
       const srcName = TR_LANG_NAMES[srcCode] || srcCode.toUpperCase();
