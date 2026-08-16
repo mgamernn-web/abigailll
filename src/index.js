@@ -29,7 +29,22 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { translate } = require('@vitalets/google-translate-api');
+// Translation — direct Google API fetch (no library needed)
+async function googleTranslate(text, toLang, fromLang) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${fromLang || 'auto'}&tl=${toLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  // data[0] = array of translation parts, data[2] = source language
+  let translated = '';
+  if (data[0]) {
+    for (const part of data[0]) {
+      if (part[0]) translated += part[0];
+    }
+  }
+  const srcLang = data[2] || 'auto';
+  return { text: translated, from: srcLang };
+}
 
 /* ═══════════════════════════════════════════
    ✅  Environment Validation
@@ -2296,48 +2311,19 @@ client.on('messageCreate', async (message) => {
     }
 
     try {
-      let result;
-      try {
-        result = await translate(textToTranslate, { to: targetLang });
-      } catch (innerErr) {
-        console.error('Translate API inner error:', innerErr.message);
-        // Fallback: try with explicit 'auto' from
-        try {
-          result = await translate(textToTranslate, { from: 'auto', to: targetLang });
-        } catch (fallbackErr) {
-          throw fallbackErr;
-        }
-      }
+      const result = await googleTranslate(textToTranslate, targetLang);
 
-      // Safely extract source language (API structure varies)
-      let srcCode = 'auto';
-      let confidence = 0;
-      try {
-        if (result.from && result.from.language && result.from.language.iso) {
-          srcCode = result.from.language.iso;
-          confidence = result.from.language.confidence || 0;
-        } else if (result.raw && result.raw.src) {
-          srcCode = result.raw.src;
-        } else if (result.from && typeof result.from === 'object' && result.from.iso) {
-          srcCode = result.from.iso;
-        } else if (typeof result.from === 'string') {
-          srcCode = result.from;
-        }
-      } catch (e) {
-        console.error('Error extracting source lang:', e.message);
-        srcCode = 'auto';
-      }
+      const srcCode = result.from || 'auto';
       const srcFlag = TR_LANG_FLAGS[srcCode] || '🔍';
       const tgtFlag = TR_LANG_FLAGS[targetLang] || '🌐';
       const srcName = TR_LANG_NAMES[srcCode] || srcCode.toUpperCase();
       const tgtName = TR_LANG_NAMES[targetLang] || targetLang.toUpperCase();
-      const confText = confidence ? ` (${Math.round(confidence * 100)}%)` : '';
 
       const embed = new EmbedBuilder()
         .setColor(0x00D4FF)
         .setTitle('🌐 Translation')
         .setDescription(
-          `${srcFlag} **Detected:** ${srcName}${confText} → ${tgtFlag} **To:** ${tgtName}`
+          `${srcFlag} **Detected:** ${srcName} → ${tgtFlag} **To:** ${tgtName}`
         )
         .addFields(
           { name: `📝 Original (${srcName})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
