@@ -1,9 +1,24 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
-const { translate } = require('@vitalets/google-translate-api');
+
+// Direct Google Translate API — no library dependency
+async function googleTranslate(text, toLang, fromLang) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${fromLang || 'auto'}&tl=${toLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  let translated = '';
+  if (data[0]) {
+    for (const part of data[0]) {
+      if (part[0]) translated += part[0];
+    }
+  }
+  const srcLang = data[2] || 'auto';
+  return { text: translated, from: srcLang };
+}
 
 /* ═══════════════════════════════════════════
    🌐 Translation Command
-   Translates any language to Hindi or English
+   Translates any language to any language
    Auto-detects source language
    ═══════════════════════════════════════════ */
 
@@ -86,23 +101,20 @@ module.exports = {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
-      const result = await translate(text, { from: fromLang === 'auto' ? undefined : fromLang, to: toLang });
+      const result = await googleTranslate(text, toLang, fromLang === 'auto' ? undefined : fromLang);
 
-      const srcFlag = LANG_FLAGS[result.from.language.iso] || '🔍';
+      const srcCode = result.from || 'auto';
+      const srcFlag = LANG_FLAGS[srcCode] || '🔍';
       const tgtFlag = LANG_FLAGS[toLang] || '🌐';
-      const srcName = LANG_NAMES[result.from.language.iso] || result.from.language.iso.toUpperCase();
+      const srcName = LANG_NAMES[srcCode] || srcCode.toUpperCase();
       const tgtName = LANG_NAMES[toLang] || toLang.toUpperCase();
-
-      // Confidence indicator
-      const confidence = result.from.language.confidence;
-      const confPercent = confidence ? `${Math.round(confidence * 100)}%` : 'N/A';
 
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('🌐 Translation')
         .setDescription(
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `┣ ${srcFlag} **From:** ${srcName}${fromLang === 'auto' ? ` (${confPercent} confident)` : ''}\n` +
+          `┣ ${srcFlag} **From:** ${srcName}\n` +
           `┣ ${tgtFlag} **To:** ${tgtName}\n` +
           `┗ 📝 **Original:**\n> ${text.length > 500 ? text.slice(0, 500) + '...' : text}`
         )
