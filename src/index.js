@@ -2076,11 +2076,81 @@ client.on('messageCreate', async (message) => {
   const msgContent = message.content.toLowerCase().trim();
 
   /* ═══════════════════════════════════════════
-     🌐 Translation Command — !tr (reply to a message)
+     🌐 Translation Command — !tr [language] (reply or type)
+     Supports all languages with flag emojis
      ═══════════════════════════════════════════ */
-  if (msgContent === '!tr' || msgContent.startsWith('!tr ')) {
-    let textToTranslate = message.content.slice(3).trim();
+
+  // Translation language maps (shared)
+  const TR_LANG_FLAGS = {
+    auto: '🔍', hi: '🇮🇳', en: '🇬🇧', ja: '🇯🇵', ko: '🇰🇷', zh: '🇨🇳', zh_cn: '🇨🇳', zh_tw: '🇹🇼', fr: '🇫🇷', de: '🇩🇪', es: '🇪🇸', pt: '🇵🇹', pt_br: '🇧🇷',
+    it: '🇮🇹', ru: '🇷🇺', ar: '🇸🇦', tr: '🇹🇷', th: '🇹🇭', vi: '🇻🇳', id: '🇮🇩', ms: '🇲🇾', nl: '🇳🇱', pl: '🇵🇱',
+    sv: '🇸🇪', da: '🇩🇰', fi: '🇫🇮', no: '🇳🇴', el: '🇬🇷', he: '🇮🇱', cs: '🇨🇿', ro: '🇷🇴', hu: '🇭🇺', uk: '🇺🇦',
+    bn: '🇧🇩', ta: '🇮🇳', te: '🇮🇳', mr: '🇮🇳', gu: '🇮🇳', kn: '🇮🇳', ml: '🇮🇳', pa: '🇮🇳', ur: '🇵🇰',
+    af: '🇿🇦', bg: '🇧🇬', hr: '🇭🇷', sk: '🇸🇰', sl: '🇸🇮', lt: '🇱🇹', lv: '🇱🇻', et: '🇪🇪', tl: '🇵🇭', sw: '🇰🇪',
+    hi_Latn: '🇮🇳', ne: '🇳🇵', si: '🇱🇰', my: '🇲🇲', km: '🇰🇭', lo: '🇱🇦', ka: '🇬🇪', hy: '🇦🇲', az: '🇦🇿', kk: '🇰🇿',
+    uz: '🇺🇿', mn: '🇲🇳', ce: '🇷🇺', iw: '🇮🇱', ps: '🇦🇫', fa: '🇮🇷', ku: '🇮🇶', sd: '🇵🇰',
+  };
+
+  const TR_LANG_NAMES = {
+    auto: 'Auto-detect', hi: 'Hindi', en: 'English', ja: 'Japanese', ko: 'Korean', zh: 'Chinese',
+    zh_cn: 'Chinese (Simplified)', zh_tw: 'Chinese (Traditional)', fr: 'French', de: 'German', es: 'Spanish',
+    pt: 'Portuguese', pt_br: 'Portuguese (Brazil)', it: 'Italian', ru: 'Russian', ar: 'Arabic', tr: 'Turkish',
+    th: 'Thai', vi: 'Vietnamese', id: 'Indonesian', ms: 'Malay', nl: 'Dutch', pl: 'Polish', sv: 'Swedish',
+    da: 'Danish', fi: 'Finnish', no: 'Norwegian', el: 'Greek', he: 'Hebrew', cs: 'Czech', ro: 'Romanian',
+    hu: 'Hungarian', uk: 'Ukrainian', bn: 'Bengali', ta: 'Tamil', te: 'Telugu', mr: 'Marathi', gu: 'Gujarati',
+    kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi', ur: 'Urdu', af: 'Afrikaans', bg: 'Bulgarian', hr: 'Croatian',
+    sk: 'Slovak', sl: 'Slovenian', lt: 'Lithuanian', lv: 'Latvian', et: 'Estonian', tl: 'Filipino', sw: 'Swahili',
+    hi_Latn: 'Hinglish', ne: 'Nepali', si: 'Sinhala', my: 'Burmese', km: 'Khmer', lo: 'Lao', ka: 'Georgian',
+    hy: 'Armenian', az: 'Azerbaijani', kk: 'Kazakh', uz: 'Uzbek', mn: 'Mongolian', iw: 'Hebrew', ps: 'Pashto',
+    fa: 'Persian', ku: 'Kurdish', sd: 'Sindhi',
+  };
+
+  // Friendly name → code mapping for user input
+  const TR_NAME_TO_CODE = {};
+  for (const [code, name] of Object.entries(TR_LANG_NAMES)) {
+    if (code !== 'auto') {
+      TR_NAME_TO_CODE[name.toLowerCase()] = code;
+    }
+  }
+
+  function resolveLangCode(input) {
+    if (!input) return { code: 'hi', name: 'Hindi', flag: '🇮🇳' };
+    const lower = input.toLowerCase();
+    // Direct code match (en, hi, ja, etc.)
+    if (TR_LANG_FLAGS[lower]) {
+      return { code: lower, name: TR_LANG_NAMES[lower] || lower.toUpperCase(), flag: TR_LANG_FLAGS[lower] };
+    }
+    // Friendly name match (hindi, english, etc.)
+    if (TR_NAME_TO_CODE[lower]) {
+      const code = TR_NAME_TO_CODE[lower];
+      return { code, name: TR_LANG_NAMES[code] || code, flag: TR_LANG_FLAGS[code] || '🌐' };
+    }
+    // Try partial match
+    for (const [code, name] of Object.entries(TR_LANG_NAMES)) {
+      if (code !== 'auto' && name.toLowerCase().startsWith(lower)) {
+        return { code, name, flag: TR_LANG_FLAGS[code] || '🌐' };
+      }
+    }
+    return null; // Unknown language
+  }
+
+  if (msgContent === '!tr' || msgContent === '.tr' || msgContent.startsWith('!tr ') || msgContent.startsWith('.tr ')) {
+    const rest = message.content.replace(/^[!.]tr\s*/, '').trim();
+
+    // Parse: !tr [language] [text] or !tr [text]
+    let targetLang = 'hi'; // default: Hindi
+    let textToTranslate = '';
     let repliedMsg = null;
+
+    // Check if first word is a language code/name
+    const firstWord = rest.split(/\s+/)[0];
+    const resolvedLang = resolveLangCode(firstWord);
+    if (resolvedLang) {
+      targetLang = resolvedLang.code;
+      textToTranslate = rest.slice(firstWord.length).trim();
+    } else {
+      textToTranslate = rest;
+    }
 
     // Priority: reply message > typed text
     if (message.reference?.messageId) {
@@ -2093,19 +2163,42 @@ client.on('messageCreate', async (message) => {
     }
 
     if (!textToTranslate) {
-      return message.reply('❌ Reply to a message with `!tr` to translate it!').catch(console.error);
+      const usageEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🌐 Translation — Usage')
+        .setDescription('Reply to a message or type text to translate!')
+        .addFields(
+          { name: '📝 Syntax', value: '`!tr <text>` — translate to Hindi (default)\n`!tr en <text>` — translate to English\n`!tr ja <text>` — translate to Japanese\n`!tr <any lang code> <text>`', inline: false },
+          { name: '💬 Reply', value: 'Reply to any message with `!tr` or `!tr en`', inline: false },
+          { name: '🌍 Popular Languages', value: '`hi` Hindi · `en` English · `ja` Japanese · `ko` Korean\n`zh` Chinese · `fr` French · `de` German · `es` Spanish\n`pt` Portuguese · `ar` Arabic · `ru` Russian · `tr` Turkish\n`ur` Urdu · `ta` Tamil · `bn` Bengali · `pa` Punjabi\n`te` Telugu · `ml` Malayalam · `gu` Gujarati · `mr` Marathi\n`th` Thai · `vi` Vietnamese · `id` Indonesian · `it` Italian\n`nl` Dutch · `pl` Polish · `uk` Ukrainian · `fa` Persian\n+ 40+ more languages!', inline: false },
+        )
+        .setFooter({ text: 'Abigail 💕 — Type a language name too, like: !tr french hello' })
+        .setTimestamp();
+      return message.reply({ embeds: [usageEmbed] }).catch(() => {});
     }
 
     try {
-      const result = await translate(textToTranslate, { to: 'en' });
+      const result = await translate(textToTranslate, { to: targetLang });
+
+      const srcCode = result.from?.language?.iso || 'auto';
+      const confidence = result.from?.language?.confidence;
+      const srcFlag = TR_LANG_FLAGS[srcCode] || '🔍';
+      const tgtFlag = TR_LANG_FLAGS[targetLang] || '🌐';
+      const srcName = TR_LANG_NAMES[srcCode] || srcCode.toUpperCase();
+      const tgtName = TR_LANG_NAMES[targetLang] || targetLang.toUpperCase();
+      const confText = confidence ? ` (${Math.round(confidence * 100)}%)` : '';
+
       const embed = new EmbedBuilder()
         .setColor(0x00D4FF)
-        .setAuthor({ name: '🌐 Translation', iconURL: message.author.displayAvatarURL({ dynamic: true }) })
-        .addFields(
-          { name: `📝 Original (${result.raw?.src || 'auto'})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
-          { name: '🇬🇧 English', value: result.text.length > 1024 ? result.text.slice(0, 1021) + '...' : result.text, inline: false }
+        .setTitle('🌐 Translation')
+        .setDescription(
+          `${srcFlag} **Detected:** ${srcName}${confText} → ${tgtFlag} **To:** ${tgtName}`
         )
-        .setFooter({ text: `Requested by ${message.author.username}` })
+        .addFields(
+          { name: `📝 Original (${srcName})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
+          { name: `${tgtFlag} ${tgtName}`, value: result.text.length > 1024 ? result.text.slice(0, 1021) + '...' : result.text, inline: false }
+        )
+        .setFooter({ text: `Requested by ${message.author.username} • Abigail 💕` })
         .setTimestamp();
       return message.reply({ embeds: [embed] }).catch(console.error);
     } catch (err) {
@@ -3730,6 +3823,7 @@ client.on('messageCreate', async (message) => {
     desc += '.weather <city>— Weather info\n';
     desc += '.hack @user   — Fake hack animation (fun!)\n';
     desc += '.roast @user  — Roast someone (fun!)\n';
+    desc += '!tr [lang] <text>— Translate to any language\n';
     desc += '```\n\n';
 
     // Highlights
