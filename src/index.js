@@ -2089,6 +2089,13 @@ client.on('messageCreate', async (message) => {
     af: '🇿🇦', bg: '🇧🇬', hr: '🇭🇷', sk: '🇸🇰', sl: '🇸🇮', lt: '🇱🇹', lv: '🇱🇻', et: '🇪🇪', tl: '🇵🇭', sw: '🇰🇪',
     hi_Latn: '🇮🇳', ne: '🇳🇵', si: '🇱🇰', my: '🇲🇲', km: '🇰🇭', lo: '🇱🇦', ka: '🇬🇪', hy: '🇦🇲', az: '🇦🇿', kk: '🇰🇿',
     uz: '🇺🇿', mn: '🇲🇳', ce: '🇷🇺', iw: '🇮🇱', ps: '🇦🇫', fa: '🇮🇷', ku: '🇮🇶', sd: '🇵🇰',
+    // Extra languages
+    gd: '🏴󠁧󠁢󠁳󠁣󠁴󠁿', cy: '🏴󠁧󠁢󠁷󠁬󠁳󠁿', ga: '🇮🇪', is: '🇮🇸', eu: '🇪🇸', ca: '🏴󠁧󠁢󠁣󠁴󠁿', gl: '🇪🇸',
+    mt: '🇲🇹', sq: '🇦🇱', bs: '🇧🇦', sr: '🇷🇸', mk: '🇲🇰', tg: '🇹🇯', tk: '🇹🇲', yo: '🇳🇬',
+    ig: '🇳🇬', ha: '🇳🇬', am: '🇪🇹', so: '🇸🇴', rw: '🇷🇼', lg: '🇺🇬', st: '🇿🇦',
+    xh: '🇿🇦', zu: '🇿🇦', sn: '🇿🇼', ny: '🇲🇼', mg: '🇲🇬', or: '🇮🇳', as: '🇮🇳',
+    hmn: '🇨🇳', co: '🇫🇷', ht: '🇭🇹', lb: '🇱🇺', mi: '🇳🇿', sm: '🇼🇸', to: '🇹🇴',
+    ny: '🇲🇼', tlh: '🌌',
   };
 
   const TR_LANG_NAMES = {
@@ -2103,6 +2110,15 @@ client.on('messageCreate', async (message) => {
     hi_Latn: 'Hinglish', ne: 'Nepali', si: 'Sinhala', my: 'Burmese', km: 'Khmer', lo: 'Lao', ka: 'Georgian',
     hy: 'Armenian', az: 'Azerbaijani', kk: 'Kazakh', uz: 'Uzbek', mn: 'Mongolian', iw: 'Hebrew', ps: 'Pashto',
     fa: 'Persian', ku: 'Kurdish', sd: 'Sindhi',
+    // Extra languages
+    gd: 'Scottish Gaelic', cy: 'Welsh', ga: 'Irish', is: 'Icelandic', eu: 'Basque',
+    ca: 'Catalan', gl: 'Galician', mt: 'Maltese', sq: 'Albanian', bs: 'Bosnian',
+    sr: 'Serbian', mk: 'Macedonian', tg: 'Tajik', tk: 'Turkmen', yo: 'Yoruba',
+    ig: 'Igbo', ha: 'Hausa', am: 'Amharic', so: 'Somali', rw: 'Kinyarwanda',
+    lg: 'Luganda', st: 'Sesotho', xh: 'Xhosa', zu: 'Zulu', sn: 'Shona',
+    mg: 'Malagasy', or: 'Odia', as: 'Assamese', hmn: 'Hmong',
+    co: 'Corsican', ht: 'Haitian Creole', lb: 'Luxembourgish', mi: 'Maori',
+    sm: 'Samoan', to: 'Tongan', tlh: 'Klingon',
   };
 
   // Friendly name → code mapping for user input
@@ -2111,6 +2127,102 @@ client.on('messageCreate', async (message) => {
     if (code !== 'auto') {
       TR_NAME_TO_CODE[name.toLowerCase()] = code;
     }
+  }
+
+  // Country/region name aliases → language code
+  const TR_ALIASES = {
+    scotland: 'en', scottish: 'gd', scots: 'gd', gaelic: 'gd',
+    wales: 'cy', welsh: 'cy',
+    ireland: 'ga', irish: 'ga',
+    britain: 'en', british: 'en', uk: 'en', american: 'en', us: 'en', usa: 'en',
+    mexico: 'es', mexican: 'es',
+    brazil: 'pt_br', brazilian: 'pt_br',
+    russia: 'ru', russian: 'ru',
+    japan: 'ja', japanese: 'ja',
+    korea: 'ko', korean: 'ko',
+    china: 'zh', chinese: 'zh',
+    india: 'hi', indian: 'hi', hindustani: 'hi',
+    pakistan: 'ur', pakistani: 'ur',
+    bangladesh: 'bn', bengali: 'bn', bengal: 'bn',
+    turkey: 'tr', turkish: 'tr', turkiye: 'tr',
+    thailand: 'th', thai: 'th',
+    vietnam: 'vi', vietnamese: 'vi',
+    indonesia: 'id', indonesian: 'id',
+    philippines: 'tl', filipino: 'tl', tagalog: 'tl',
+    egypt: 'ar', egyptian: 'ar',
+    saudi: 'ar', saudi arabia: 'ar',
+    iran: 'fa', iranian: 'fa', farsi: 'fa', persian: 'fa',
+    iraq: 'ar',
+    france: 'fr',
+    germany: 'de', german: 'de',
+    italy: 'it', italian: 'it',
+    spain: 'es', spanish: 'es',
+    portugal: 'pt', portuguese: 'pt',
+    netherlands: 'nl', dutch: 'nl', holland: 'nl',
+    sweden: 'sv', swedish: 'sv',
+    norway: 'no', norwegian: 'no',
+    denmark: 'da', danish: 'da',
+    finland: 'fi', finnish: 'fi',
+    poland: 'pl', polish: 'pl',
+    greece: 'el', greek: 'el',
+    israel: 'he', hebrew: 'he',
+    ukraine: 'uk', ukrainian: 'uk',
+    romania: 'ro', romanian: 'ro',
+    czech: 'cs', czechia: 'cs',
+    hungary: 'hu', hungarian: 'hu',
+    switzerland: 'de', swiss: 'de',
+    austria: 'de',
+    nepal: 'ne', nepali: 'ne',
+    myanmar: 'my', burma: 'my', burmese: 'my',
+    cambodia: 'km', khmer: 'km',
+    laos: 'lo', lao: 'lo',
+    mongolia: 'mn', mongolian: 'mn',
+    georgia: 'ka', georgian: 'ka',
+    armenia: 'hy', armenian: 'hy',
+    azerbaijan: 'az', azerbaijani: 'az',
+    kazakhstan: 'kk', kazakh: 'kk',
+    uzbekistan: 'uz', uzbek: 'uz',
+    iceland: 'is', icelandic: 'is',
+    malta: 'mt', maltese: 'mt',
+    albania: 'sq', albanian: 'sq',
+    macedonia: 'mk', macedonian: 'mk',
+    serbia: 'sr', serbian: 'sr',
+    bosnia: 'bs', bosnian: 'bs',
+    croatia: 'hr', croatian: 'hr',
+    slovakia: 'sk', slovak: 'sk',
+    slovenia: 'sl', slovenian: 'sl',
+    lithuania: 'lt', lithuanian: 'lt',
+    latvia: 'lv', latvian: 'lv',
+    estonia: 'et', estonian: 'et',
+    bulgaria: 'bg', bulgarian: 'bg',
+    belarus: 'ru',
+    morocco: 'ar',
+    ethiopia: 'am', ethiopian: 'am',
+    somalia: 'so', somali: 'so',
+    hausa: 'ha', yoruba: 'yo', igbo: 'ig',
+    swahili: 'sw', kenya: 'sw', tanzania: 'sw',
+    zulu: 'zu', xhosa: 'xh',
+    maori: 'mi', new zealand: 'mi',
+    hawaii: 'haw', hawaiian: 'haw', hawai: 'haw',
+    tamil: 'ta', telugu: 'te', malayalam: 'ml',
+    kannada: 'kn', marathi: 'mr', gujarati: 'gu',
+    punjabi: 'pa', sindhi: 'sd',
+    odia: 'or', oriya: 'or', assamese: 'as',
+    kurdish: 'ku', kurd: 'ku',
+    pashto: 'ps',
+    catalan: 'ca', basque: 'eu', galician: 'gl',
+    corsican: 'co', haitian: 'ht', creole: 'ht',
+    luxembourg: 'lb',
+    samoan: 'sm', tongan: 'to',
+    amharic: 'am', kinyarwanda: 'rw',
+    luganda: 'lg', sesotho: 'st', shona: 'sn',
+    malagasy: 'mg', hmong: 'hmn',
+    tajik: 'tg', turkmen: 'tk',
+    klingon: 'tlh',
+  };
+  // Merge aliases into NAME_TO_CODE
+  for (const [alias, code] of Object.entries(TR_ALIASES)) {
+    TR_NAME_TO_CODE[alias] = code;
   }
 
   function resolveLangCode(input) {
@@ -2125,10 +2237,16 @@ client.on('messageCreate', async (message) => {
       const code = TR_NAME_TO_CODE[lower];
       return { code, name: TR_LANG_NAMES[code] || code, flag: TR_LANG_FLAGS[code] || '🌐' };
     }
-    // Try partial match
+    // Try partial match on language names
     for (const [code, name] of Object.entries(TR_LANG_NAMES)) {
       if (code !== 'auto' && name.toLowerCase().startsWith(lower)) {
         return { code, name, flag: TR_LANG_FLAGS[code] || '🌐' };
+      }
+    }
+    // Try partial match on aliases
+    for (const [alias, code] of Object.entries(TR_ALIASES)) {
+      if (alias.startsWith(lower)) {
+        return { code, name: TR_LANG_NAMES[code] || code, flag: TR_LANG_FLAGS[code] || '🌐' };
       }
     }
     return null; // Unknown language
