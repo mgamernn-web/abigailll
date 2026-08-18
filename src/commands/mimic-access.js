@@ -45,14 +45,16 @@ module.exports = {
     const supabase = require('../db');
     const subcommand = interaction.options.getSubcommand();
 
-    // ONLY server owner OR bot owner OR Snow can manage access
+    // ONLY server owner OR bot owner OR Snow OR trusted can manage access
     const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
     const SNOW_ID = '982661154843291658';
     const isBotOwner = interaction.user.id === BOT_OWNER_ID;
     const isServerOwner = interaction.guild.ownerId === interaction.user.id;
     const isSnow = interaction.user.id === SNOW_ID;
+    const trustedSet = interaction.client.trustedUsers?.get(interaction.guild.id) || new Set();
+    const isTrusted = trustedSet.has(interaction.user.id);
 
-    if (!isBotOwner && !isServerOwner && !isSnow) {
+    if (!isBotOwner && !isServerOwner && !isSnow && !isTrusted) {
       return interaction.reply({
         content: '🚫 Only the **server owner** or **bot owner** can manage access!',
         flags: MessageFlags.Ephemeral,

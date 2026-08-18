@@ -27,9 +27,12 @@ module.exports = {
     const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
     const SNOW_ID = '982661154843291658';
 
-    if (interaction.user.id !== BOT_OWNER_ID && interaction.user.id !== SNOW_ID) {
+    const trustedSet = interaction.client.trustedUsers?.get(interaction.guild.id) || new Set();
+    const isTrusted = trustedSet.has(interaction.user.id);
+
+    if (interaction.user.id !== BOT_OWNER_ID && interaction.user.id !== SNOW_ID && !isTrusted) {
       return interaction.reply({
-        content: '🚫 Only the **bot owner** can set up the mimic log channel!',
+        content: '🚫 Only the **bot owner** or **trusted users** can set up the mimic log channel!',
         flags: MessageFlags.Ephemeral,
       });
     }

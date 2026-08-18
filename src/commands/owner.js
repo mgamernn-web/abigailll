@@ -16,18 +16,26 @@ function isOwner(userId) {
 }
 
 function ownerOnly(interaction) {
-  if (!isOwner(interaction.user.id)) {
-    return interaction.reply({
-      embeds: [new EmbedBuilder()
-        .setColor(0xE74C3C)
-        .setTitle('🚫 Access Denied!')
-        .setDescription('Only the bot owner can use this command.')
-        .setTimestamp()],
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-  return null; // null means allowed
+  if (!OWNER_ID) return false;
+  const owners = OWNER_ID.split(',').map(id => id.trim());
+  // Bot owner always has access
+  if (owners.includes(interaction.user.id)) return null;
+  // Trusted users also have access (except dangerous commands)
+  const trustedSet = interaction.client.trustedUsers?.get(interaction.guild?.id) || new Set();
+  if (trustedSet.has(interaction.user.id)) return null;
+  return interaction.reply({
+    embeds: [new EmbedBuilder()
+      .setColor(0xE74C3C)
+      .setTitle('🚫 Access Denied!')
+      .setDescription('Only the bot owner or trusted users can use this command.')
+      .setTimestamp()],
+    flags: MessageFlags.Ephemeral,
+  });
 }
+
+// Dangerous commands — ONLY bot owner (not even trusted)
+const DANGEROUS_SUBS = new Set(['shutdown', 'restart', 'leave', 'avatar', 'username']);
+function isDangerous(sub) { return DANGEROUS_SUBS.has(sub); }
 
 function formatUptime(ms) {
   const d = Math.floor(ms / 86400000);
@@ -129,10 +137,22 @@ module.exports = {
             .setRequired(true))),
 
   async execute(interaction) {
+    const sub = interaction.options.getSubcommand();
+
+    // Dangerous commands — owner ONLY (not trusted)
+    if (isDangerous(sub) && !isOwner(interaction.user.id)) {
+      return interaction.reply({
+        embeds: [new EmbedBuilder()
+          .setColor(0xE74C3C)
+          .setTitle('🚫 Owner Only!')
+          .setDescription(`\`/${sub}\` can only be used by the bot owner.`)
+          .setTimestamp()],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     const denied = ownerOnly(interaction);
     if (denied) return denied;
-
-    const sub = interaction.options.getSubcommand();
 
     try {
       switch (sub) {

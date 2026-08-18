@@ -47,7 +47,9 @@ module.exports = {
     const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
     const isBotOwner = interaction.user.id === BOT_OWNER_ID;
     const isServerOwner = interaction.guild.ownerId === interaction.user.id;
-    let hasAccess = isBotOwner || isServerOwner;
+    const trustedSet = interaction.client.trustedUsers?.get(interaction.guild.id) || new Set();
+    const isTrusted = trustedSet.has(interaction.user.id);
+    let hasAccess = isBotOwner || isServerOwner || isTrusted;
 
     // Check Supabase access list (with error handling if table doesn't exist)
     if (!hasAccess && supabase) {
