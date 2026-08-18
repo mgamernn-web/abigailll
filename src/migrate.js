@@ -9,6 +9,17 @@
 const https = require('https');
 
 const MIGRATIONS = `
+-- ✅ AFK Users table
+CREATE TABLE IF NOT EXISTS afk_users (
+  user_id    TEXT NOT NULL,
+  guild_id   TEXT NOT NULL,
+  afk_time   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reason     TEXT DEFAULT 'Just stepped away for a moment 💫',
+  avatar_url TEXT,
+  username   TEXT,
+  PRIMARY KEY (user_id, guild_id)
+);
+
 -- ✅ Wallets table
 CREATE TABLE IF NOT EXISTS wallets (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -93,6 +104,12 @@ ALTER TABLE server_pools DISABLE ROW LEVEL SECURITY;
 ALTER TABLE pool_donors DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mimic_access DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mimic_log_access DISABLE ROW LEVEL SECURITY;
+ALTER TABLE mimic_protected DISABLE ROW LEVEL SECURITY;
+ALTER TABLE mimic_log_channel DISABLE ROW LEVEL SECURITY;
+ALTER TABLE afk_break_access DISABLE ROW LEVEL SECURITY;
+ALTER TABLE afk_break_access_config DISABLE ROW LEVEL SECURITY;
+ALTER TABLE afk_break_protected DISABLE ROW LEVEL SECURITY;
+ALTER TABLE lootbox_config DISABLE ROW LEVEL SECURITY;
 
 -- ✅ Hand Cricket profiles table
 CREATE TABLE IF NOT EXISTS hc_profiles (
@@ -192,6 +209,49 @@ CREATE TABLE IF NOT EXISTS lootbox_config (
 );
 
 ALTER TABLE lootbox_config DISABLE ROW LEVEL SECURITY;
+
+-- ✅ Chat Leaderboard table (persistent message counts)
+CREATE TABLE IF NOT EXISTS chat_leaderboard (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '',
+  message_count BIGINT DEFAULT 1,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, guild_id)
+);
+
+ALTER TABLE chat_leaderboard DISABLE ROW LEVEL SECURITY;
+
+-- ✅ Hand Cricket Match History
+CREATE TABLE IF NOT EXISTS hc_match_history (
+  match_id TEXT NOT NULL PRIMARY KEY,
+  players JSONB DEFAULT '[]',
+  scores JSONB DEFAULT '{}',
+  winner TEXT,
+  overs INTEGER DEFAULT 1,
+  wickets INTEGER DEFAULT 2,
+  start_time TIMESTAMPTZ,
+  end_time TIMESTAMPTZ,
+  catch_chances INTEGER DEFAULT 0,
+  catches_taken INTEGER DEFAULT 0,
+  catches_dropped INTEGER DEFAULT 0,
+  milestones JSONB DEFAULT '[]'
+);
+
+ALTER TABLE hc_match_history DISABLE ROW LEVEL SECURITY;
+
+-- ✅ Trusted Users table (persistent across restarts)
+CREATE TABLE IF NOT EXISTS trusted_users (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  guild_id TEXT NOT NULL,
+  added_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, guild_id)
+);
+
+ALTER TABLE trusted_users DISABLE ROW LEVEL SECURITY;
 `;
 
 async function runMigrations() {

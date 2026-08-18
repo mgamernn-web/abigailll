@@ -667,6 +667,113 @@ client.once(Events.ClientReady, async () => {
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
   client.user.setActivity('🩸 Dracula\'s Queen 👑');
 
+  // ── Auto-migrate: create all tables if missing ──
+  if (supabase && process.env.SUPABASE_ACCESS_TOKEN) {
+    const https = require('https');
+    const projectRef = process.env.SUPABASE_URL.replace('https://', '').split('.')[0];
+    const autoTables = `
+CREATE TABLE IF NOT EXISTS afk_users (
+  user_id TEXT NOT NULL, guild_id TEXT NOT NULL, afk_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reason TEXT DEFAULT 'Just stepped away for a moment 💫', avatar_url TEXT, username TEXT, PRIMARY KEY (user_id, guild_id));
+CREATE TABLE IF NOT EXISTS wallets (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL, username TEXT DEFAULT '',
+  balance BIGINT DEFAULT 0, bank BIGINT DEFAULT 0, last_daily TIMESTAMPTZ, last_work TIMESTAMPTZ,
+  last_beg TIMESTAMPTZ, last_rob TIMESTAMPTZ, last_gamble TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS server_pools (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, guild_id TEXT NOT NULL UNIQUE, guild_name TEXT DEFAULT '',
+  balance BIGINT DEFAULT 0, total_donated BIGINT DEFAULT 0, donor_count INT DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS pool_donors (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL, username TEXT DEFAULT '',
+  total_donated BIGINT DEFAULT 0, donation_count INT DEFAULT 1, created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS mimic_access (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '', granted_by TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS mimic_log_access (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '', granted_by TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS mimic_protected (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS mimic_log_channel (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, guild_id TEXT NOT NULL UNIQUE,
+  channel_id TEXT NOT NULL, channel_name TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS afk_break_access (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL,
+  allowed_by TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS afk_break_access_config (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, guild_id TEXT NOT NULL UNIQUE,
+  enabled BOOLEAN DEFAULT false, allowed_role_id TEXT DEFAULT NULL, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS afk_break_protected (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS lootbox_config (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, guild_id TEXT NOT NULL UNIQUE, guild_name TEXT DEFAULT '',
+  enabled BOOLEAN DEFAULT false, channel_id TEXT DEFAULT NULL, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS hc_profiles (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL UNIQUE, username TEXT DEFAULT '',
+  games_played INT DEFAULT 0, games_won INT DEFAULT 0, total_runs INT DEFAULT 0, total_wickets INT DEFAULT 0,
+  highest_score INT DEFAULT 0, total_balls INT DEFAULT 0, total_fours INT DEFAULT 0, total_sixes INT DEFAULT 0,
+  win_streak INT DEFAULT 0, best_win_streak INT DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS hc_match_history (
+  match_id TEXT NOT NULL PRIMARY KEY, players JSONB DEFAULT '[]', scores JSONB DEFAULT '{}',
+  winner TEXT, overs INTEGER DEFAULT 1, wickets INTEGER DEFAULT 2, start_time TIMESTAMPTZ, end_time TIMESTAMPTZ,
+  catch_chances INTEGER DEFAULT 0, catches_taken INTEGER DEFAULT 0, catches_dropped INTEGER DEFAULT 0, milestones JSONB DEFAULT '[]');
+CREATE TABLE IF NOT EXISTS chat_leaderboard (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '', message_count BIGINT DEFAULT 1, updated_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+CREATE TABLE IF NOT EXISTS trusted_users (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, guild_id TEXT NOT NULL,
+  added_by TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(user_id, guild_id));
+`;
+    const stmts = autoTables.split(';').map(s => s.trim()).filter(s => s.length > 0);
+    let created = 0, skipped = 0;
+    for (const stmt of stmts) {
+      try {
+        const res = await new Promise((resolve, reject) => {
+          const data = JSON.stringify({ query: stmt + ';' });
+          const req = https.request({
+            hostname: 'api.supabase.com',
+            path: `/v1/projects/${projectRef}/database/query`,
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+          }, resolve);
+          req.on('error', reject);
+          req.write(data);
+          req.end();
+        });
+        if (res.ok) { created++; } else {
+          const txt = await new Promise(r => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>r(d)); });
+          if (txt.includes('already exists') || txt.includes('42P07')) skipped++;
+          else console.log(`  ⚠️ Table create: ${txt.substring(0,80)}`);
+        }
+      } catch(e) { console.log(`  ⚠️ Migration network error: ${e.message}`); }
+    }
+    // Disable RLS on all tables
+    const rlsTables = ['afk_users','wallets','server_pools','pool_donors','mimic_access','mimic_log_access','mimic_protected','mimic_log_channel','afk_break_access','afk_break_access_config','afk_break_protected','lootbox_config','hc_profiles','hc_match_history','chat_leaderboard','trusted_users'];
+    for (const t of rlsTables) {
+      try {
+        await new Promise((resolve, reject) => {
+          const data = JSON.stringify({ query: `ALTER TABLE ${t} DISABLE ROW LEVEL SECURITY;` });
+          const req = https.request({
+            hostname: 'api.supabase.com',
+            path: `/v1/projects/${projectRef}/database/query`,
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+          }, resolve);
+          req.on('error', reject);
+          req.write(data);
+          req.end();
+        });
+      } catch(e) {}
+    }
+    console.log(`🔧 Auto-migrate done: ${created} created, ${skipped} already existed`);
+  } else if (supabase) {
+    console.log('⚠️  No SUPABASE_ACCESS_TOKEN — tables won\'t auto-create.');
+    console.log('   → Go to https://supabase.com/dashboard/account/tokens');
+    console.log('   → Generate token → Add SUPABASE_ACCESS_TOKEN in Railway');
+    console.log('   → OR run supabase-setup.sql manually in SQL Editor');
+  }
+
   // Load AFK break protected users from Supabase
   if (supabase) {
     try {
@@ -705,7 +812,7 @@ client.once(Events.ClientReady, async () => {
         .from('mimic_access')
         .select('guild_id, user_id, username');
       if (maErr) {
-        console.error('❌ Failed to load mimic_access:', maErr.message);
+        console.warn('⚠️ mimic_access table not ready yet (will work after setup)');
       } else if (maData) {
         for (const row of maData) {
           if (!client.mimicAccess) client.mimicAccess = new Map();
@@ -5227,7 +5334,7 @@ client.on('messageCreate', async (message) => {
       .maybeSingle();
 
     if (dbError) {
-      if (afkDbAvailable) { console.error('AFK DB error, disabling AFK checks:', dbError.message); afkDbAvailable = false; }
+      if (afkDbAvailable) { console.warn('⚠️ AFK table not ready, AFK checks paused'); afkDbAvailable = false; }
       return;
     }
 
