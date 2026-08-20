@@ -665,8 +665,7 @@ const ALL_QUOTES = [
 client.once(Events.ClientReady, async () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
-  client.user.setActivity('🩸 Dracula\'s Queen 👑');
-  client.user.setStatus('dnd');
+  client.user.setPresence({ activities: [{ name: "🩸 Dracula's Queen 👑" }], status: 'dnd' });
 
   // ── Auto-migrate: create all tables if missing ──
   if (supabase && process.env.SUPABASE_ACCESS_TOKEN) {
